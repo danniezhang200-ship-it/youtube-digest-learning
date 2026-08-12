@@ -15,6 +15,7 @@ Depending on the feature you use, YouTube Digest handles:
 - transcript context around a timestamped note;
 - content you ask to translate;
 - notes you save;
+- words and phrases you save, their notes, and source-video context;
 - Supadata and DeepSeek configuration, including API keys; and
 - cached transcript, digest, and translation results.
 
@@ -46,6 +47,7 @@ YouTube Digest uses Chrome's local extension storage, not a YouTube Digest cloud
 
 - Supadata and DeepSeek settings and API keys remain on the device in Chrome's extension storage.
 - Saved notes remain until you delete them or remove/clear the extension's data. The extension keeps up to 100 notes.
+- Saved vocabulary, personal word notes, and source-video context remain until you delete them or remove/clear the extension's data.
 - Recent transcript, digest, and per-segment translation cache entries are stored
   locally. The cache is limited to 20 videos, and entries older than 30 days are
   removed when the side panel opens.
@@ -54,7 +56,7 @@ Chrome extension storage is not a password vault. Anyone with sufficient access 
 
 To remove data:
 
-- delete individual saved notes in YouTube Digest;
+- delete individual saved notes and vocabulary entries in YouTube Digest;
 - use the Options page to clear cached digests, delete all notes, or reset all extension data;
 - remove the extension or clear its stored data from Chrome to delete all local settings, keys, notes, and cache entries; and
 - revoke keys in the Supadata or DeepSeek dashboard to stop their future use.
@@ -66,7 +68,7 @@ Clearing local data does not delete information already processed or retained by
 YouTube Digest uses Chrome permissions for these purposes:
 
 - `sidePanel`: display the YouTube Digest interface beside YouTube.
-- `storage`: store settings, keys, notes, and cached results locally.
+- `storage`: store settings, keys, notes, vocabulary, and cached results locally.
 - `tabs`: identify and interact with the active YouTube tab.
 - `scripting`: coordinate the extension's YouTube page controls.
 - YouTube host access: read the active video's URL and metadata and provide timestamp controls.

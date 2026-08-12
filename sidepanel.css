@@ -1039,6 +1039,8 @@ body {
   z-index: 1000;
   transform: translateX(-50%);
   animation: fadeIn 0.15s ease;
+  display: flex;
+  gap: 6px;
 }
 
 .explain-btn {
@@ -1167,6 +1169,44 @@ body {
   border-radius: var(--r-sm);
   background: var(--accent-dim);
 }
+
+/* Learning tools: vocabulary and transcript export */
+.vocabulary-highlight {
+  background: #ffe08a;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-shadow: inset 0 -1px 0 #d79b28;
+}
+
+.vocabulary-search,
+.export-options select,
+.vocabulary-item textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: 12.5px var(--font-body);
+  padding: 10px 12px;
+}
+
+.vocabulary-search { margin: 10px 0 14px; }
+.vocabulary-item { padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.vocabulary-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.vocabulary-item-head strong { font: 600 17px var(--font-reading); color: var(--accent); }
+.vocabulary-item textarea { min-height: 58px; resize: vertical; }
+.vocabulary-meta { margin-top: 8px; color: var(--text-muted); font: 11px var(--font-body); }
+.vocabulary-context { margin: 8px 0 0; color: var(--text-secondary); font: 12.5px/1.55 var(--font-reading); }
+.vocabulary-empty { padding: 30px 12px; text-align: center; color: var(--text-muted); }
+
+.export-dialog { max-width: 420px; }
+.export-options { display: grid; gap: 14px; padding: 20px; }
+.export-options label { display: grid; gap: 6px; color: var(--text-secondary); font: 600 12px var(--font-body); }
+.export-options .export-checkbox { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 8px; }
+.export-hint { margin: 0; color: var(--text-muted); font: 11.5px/1.5 var(--font-body); }
+.export-confirm { justify-self: end; }
 
 /* ============================================================
    NOTES TAB

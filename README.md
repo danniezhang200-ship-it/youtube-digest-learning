@@ -1,12 +1,26 @@
-# YouTube Digest
+# YouTube Digest Learning
+
+> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. This edition adds a local vocabulary notebook, cross-video vocabulary highlighting, and printable original, Chinese, and bilingual transcript exports.
+
+This project preserves the upstream MIT License and copyright notice. It is an independent derivative project and is not an official release of the original author.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Turn every YouTube video into a resource for deep learning. YouTube Digest brings transcripts, bilingual translation, AI overviews, explanations, and timestamped notes into one Chrome side panel, so you can study ideas and language without losing your place.
+Turn every YouTube video into a resource for deep learning. YouTube Digest Learning brings transcripts, bilingual translation, AI overviews, explanations, vocabulary, exports, and timestamped notes into one Chrome side panel, so you can study ideas and language without losing your place.
 
-- Turn captions into a readable, searchable learning resource.
-- Learn languages with the original transcript, a Simplified Chinese translation, or an aligned bilingual view.
-- Build understanding with an AI overview, chapters, key quotes, and selected-text explanations.
+## Added in this learning edition
+
+- Save selected words and phrases to a local vocabulary list and highlight them across videos.
+- Keep personal meanings, source context, and lookup counts for saved vocabulary.
+- Export the vocabulary notebook as CSV.
+- Export original, Simplified Chinese, or bilingual transcripts as printable HTML, Markdown, or plain text.
+- Choose whether to include timestamps and append vocabulary from the current video.
+
+## Features inherited from the upstream project
+
+- Turn native YouTube captions into a readable, searchable transcript.
+- View the original transcript, a Simplified Chinese translation, or an aligned bilingual view.
+- Generate AI overviews, chapters, key quotes, and selected-text explanations.
 - Navigate long videos by clicking timestamps in the transcript, overview, or notes.
 - Save polished timestamped notes for later study.
 - Keep control of your data with your own API keys, local Chrome storage, and no analytics or telemetry.

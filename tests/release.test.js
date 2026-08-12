@@ -17,7 +17,7 @@ test("manifest uses minimized install-time permissions", () => {
   assert.ok(!manifest.permissions.includes("activeTab"));
   assert.ok(manifest.host_permissions.includes("https://api.deepseek.com/*"));
   assert.equal(Object.hasOwn(manifest, "optional_host_permissions"), false);
-  assert.equal(manifest.version, "1.1.5");
+  assert.equal(manifest.version, "1.2.0");
 });
 
 test("release copy documents current scope without em dashes", () => {
@@ -31,14 +31,14 @@ test("release copy documents current scope without em dashes", () => {
   assert.doesNotMatch(manifest.description, /—/);
   assert.doesNotMatch(packageJson.description, /—/);
 
-  assert.equal(manifest.name, "YouTube Digest");
-  assert.equal(packageJson.name, "youtube-digest");
+  assert.equal(manifest.name, "YouTube Digest Learning");
+  assert.equal(packageJson.name, "youtube-digest-learning");
   assert.match(read("scripts/package-extension.sh"), /youtube-digest-v\$version\.zip/);
   assert.doesNotMatch(
     [readme, chineseReadme, read("PRIVACY.md"), read("SECURITY.md")].join("\n"),
     /\bYT Digest\b/,
   );
-  assert.match(readme, /^# YouTube Digest$/m);
+  assert.match(readme, /^# YouTube Digest Learning$/m);
   assert.match(
     readme,
     /Turn every YouTube video into a resource for deep learning\./,
@@ -63,7 +63,7 @@ test("release copy documents current scope without em dashes", () => {
   );
   assert.match(readme, /upstream issues and pull requests are not accepted/i);
   assert.doesNotMatch(readme, /^## Contributing$/m);
-  assert.match(chineseReadme, /^# YouTube Digest$/m);
+  assert.match(chineseReadme, /^# YouTube Digest Learning$/m);
   assert.match(chineseReadme, /把每个 YouTube 视频变成一份可以深入学习的资料/);
   assert.match(chineseReadme, /^## 让你的编程 Agent 帮你安装$/m);
   assert.match(

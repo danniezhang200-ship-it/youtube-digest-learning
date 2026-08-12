@@ -33,6 +33,7 @@
         <button class="tab active" data-tab="transcript">Transcript</button>
         <button class="tab" data-tab="overview">Overview</button>
         <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="vocabulary">Words</button>
       </div>
     </div>
 
@@ -190,6 +191,21 @@
               focused.
             </p>
             <div id="notesList"></div>
+          </div>
+        </div>
+
+        <!-- TAB: Vocabulary -->
+        <div class="tab-panel" data-panel="vocabulary">
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">Vocabulary</div>
+              <button class="enhance-btn" id="exportVocabularyBtn">Export CSV</button>
+            </div>
+            <p class="notes-intro" id="vocabularyIntro">
+              Select a word or phrase in the transcript, then choose “Save word”. Saved vocabulary is highlighted across videos.
+            </p>
+            <input class="vocabulary-search" id="vocabularySearch" type="search" placeholder="Search saved words" />
+            <div id="vocabularyList"></div>
           </div>
         </div>
       </div>

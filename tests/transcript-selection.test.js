@@ -51,3 +51,17 @@ test("the Explain tooltip preserves selection and contains pointer events", () =
     /\.addEventListener\("click", async \(event\) => \{\s+event\.preventDefault\(\);\s+event\.stopPropagation\(\);/,
   );
 });
+
+test("selected transcript text can be saved to local vocabulary", () => {
+  assert.match(source, /VOCABULARY_STORAGE_KEY = "ytd_vocabulary"/);
+  assert.match(source, /save-word-btn/);
+  assert.match(source, /saveVocabularyTerm\(selectedText/);
+  assert.match(source, /applyVocabularyHighlights\(\)/);
+});
+
+test("transcript export supports bilingual printable output", () => {
+  assert.match(source, /function openExportDialog\(\)/);
+  assert.match(source, /value="bilingual"/);
+  assert.match(source, /Printable HTML \/ PDF/);
+  assert.match(source, /function exportTranscriptAdvanced\(options\)/);
+});

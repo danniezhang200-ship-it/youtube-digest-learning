@@ -39,6 +39,8 @@ let transcriptScrollObserver = null;
 // Stable keys include the video, source mode, language, and semantic segment ID.
 let transcriptParagraphCache = new Map();
 const TRANSLATION_MESSAGE_TIMEOUT_MS = 130_000;
+const VOCABULARY_STORAGE_KEY = "ytd_vocabulary";
+let savedVocabulary = [];
 
 /**
  * Prevent a stopped service worker or dead message channel from leaving the
@@ -231,6 +233,7 @@ function groupTranscriptEntries(entries, limits = TRANSCRIPT_SEGMENT_LIMITS) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setupEventListeners();
+  await loadVocabulary();
   await evictOldCacheEntries(20);
 
   const configStatus = await chrome.runtime.sendMessage({
@@ -377,7 +380,13 @@ function setupEventListeners() {
     ?.addEventListener("click", copyTranscript);
   document
     .getElementById("exportTranscriptBtn")
-    ?.addEventListener("click", exportTranscript);
+    ?.addEventListener("click", openExportDialog);
+  document
+    .getElementById("exportVocabularyBtn")
+    ?.addEventListener("click", exportVocabularyCsv);
+  document
+    .getElementById("vocabularySearch")
+    ?.addEventListener("input", (event) => renderVocabulary(event.target.value));
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
@@ -865,6 +874,8 @@ function renderTranscript() {
     transcriptList.appendChild(div);
   });
 
+  applyVocabularyHighlights();
+
   // Start tracking video playback for auto-scroll
   startPlaybackTracking();
 }
@@ -896,6 +907,78 @@ function exportTranscript() {
 
   const filename = `${sanitizeFilename(currentVideoTitle)}-transcript.txt`;
   downloadTextFile(exportText, filename);
+}
+
+function getExportRows() {
+  return getActiveTranscriptSegments().map((segment) => ({
+    timestamp: `${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, "0")}`,
+    original: normalizeCaptionText(segment.text),
+    translated:
+      transcriptParagraphCache.get(transcriptTranslationCacheKey(segment)) || "",
+  }));
+}
+
+function openExportDialog() {
+  document.getElementById("exportDialog")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "exportDialog";
+  modal.className = "explain-modal-overlay";
+  modal.innerHTML = `
+    <div class="explain-modal export-dialog">
+      <div class="explain-modal-header"><div class="explain-modal-title">Export transcript</div><button class="explain-modal-close" data-close>✕</button></div>
+      <div class="export-options">
+        <label>Language<select id="exportLanguage"><option value="original">English / original</option><option value="zh">中文</option><option value="bilingual">双语（上英下中）</option></select></label>
+        <label>Format<select id="exportFormat"><option value="html">Printable HTML / PDF</option><option value="md">Markdown</option><option value="txt">Plain text</option></select></label>
+        <label class="export-checkbox"><input id="exportTimestamps" type="checkbox" checked /> Include timestamps</label>
+        <label class="export-checkbox"><input id="exportWords" type="checkbox" checked /> Append this video's vocabulary</label>
+        <p class="export-hint">For Chinese or bilingual export, first open that transcript mode and let all visible segments finish translating.</p>
+        <button class="enhance-btn export-confirm" id="exportConfirmBtn">Export</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector("[data-close]").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (event) => { if (event.target === modal) modal.remove(); });
+  modal.querySelector("#exportConfirmBtn").addEventListener("click", () => {
+    exportTranscriptAdvanced({
+      language: modal.querySelector("#exportLanguage").value,
+      format: modal.querySelector("#exportFormat").value,
+      timestamps: modal.querySelector("#exportTimestamps").checked,
+      appendWords: modal.querySelector("#exportWords").checked,
+    });
+    modal.remove();
+  });
+}
+
+function exportTranscriptAdvanced(options) {
+  const rows = getExportRows();
+  const needsTranslation = options.language !== "original";
+  if (needsTranslation && rows.some((row) => !row.translated)) {
+    alert("Some Chinese translations are not ready. Open 中文 or 双语, scroll through the transcript until translation finishes, then export again.");
+    return;
+  }
+  const words = options.appendWords
+    ? savedVocabulary.filter((item) => item.sources?.some((source) => source.videoId === currentVideoId))
+    : [];
+  const title = currentVideoTitle || "Untitled video";
+  const meta = { title, channel: currentChannelName || "Unknown", url: `https://youtube.com/watch?v=${currentVideoId}` };
+  const lineText = (row) => {
+    const stamp = options.timestamps ? `[${row.timestamp}] ` : "";
+    if (options.language === "zh") return `${stamp}${row.translated}`;
+    if (options.language === "bilingual") return `${stamp}${row.original}\n${row.translated}`;
+    return `${stamp}${row.original}`;
+  };
+  const suffix = options.language === "bilingual" ? "-bilingual" : options.language === "zh" ? "-zh" : "-original";
+  if (options.format === "html") {
+    const body = rows.map((row) => `<section class="line"><div class="time">${options.timestamps ? escapeHtml(row.timestamp) : ""}</div><div>${options.language !== "zh" ? `<p class="original">${escapeHtml(row.original)}</p>` : ""}${options.language !== "original" ? `<p class="translation">${escapeHtml(row.translated)}</p>` : ""}</div></section>`).join("");
+    const wordList = words.length ? `<section class="word-list"><h2>Vocabulary</h2>${words.map((word) => `<p><strong>${escapeHtml(word.term)}</strong>${word.note ? ` — ${escapeHtml(word.note)}` : ""}</p>`).join("")}</section>` : "";
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>@page{margin:18mm}body{font:11pt/1.6 Georgia,serif;color:#24211d;max-width:800px;margin:auto}h1{font:700 24pt Arial,sans-serif}.meta{color:#666;border-bottom:1px solid #ccc;padding-bottom:12px}.line{display:grid;grid-template-columns:52px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid #eee;break-inside:avoid}.time{color:#c8674f;font:9pt Arial}.original,.translation{margin:0}.translation{margin-top:5px;color:#4e4942}.word-list{page-break-before:always}a{color:#555}@media print{body{max-width:none}}</style></head><body><h1>${escapeHtml(title)}</h1><p class="meta">${escapeHtml(meta.channel)} · <a href="${escapeHtml(meta.url)}">${escapeHtml(meta.url)}</a></p>${body}${wordList}</body></html>`;
+    downloadFile(html, `${sanitizeFilename(title)}${suffix}.html`, "text/html");
+    return;
+  }
+  const heading = options.format === "md" ? `# ${title}\n\n${meta.channel} · ${meta.url}\n\n` : `${title}\n${meta.channel}\n${meta.url}\n\n`;
+  let output = heading + rows.map(lineText).join("\n\n");
+  if (words.length) output += `\n\n${options.format === "md" ? "## Vocabulary" : "VOCABULARY"}\n\n${words.map((word) => `- ${word.term}${word.note ? ` — ${word.note}` : ""}`).join("\n")}`;
+  downloadFile(output, `${sanitizeFilename(title)}${suffix}.${options.format}`, "text/plain");
 }
 
 // ============================================================
@@ -976,6 +1059,7 @@ function switchTab(tabName) {
   if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading) {
     triggerAnalysis();
   }
+  if (tabName === "vocabulary") loadVocabulary();
 }
 
 /**
@@ -1154,7 +1238,11 @@ async function copyToClipboardWithFeedback(text, buttonId) {
 }
 
 function downloadTextFile(text, filename) {
-  const blob = new Blob([text], { type: "text/plain" });
+  downloadFile(text, filename, "text/plain");
+}
+
+function downloadFile(text, filename, mimeType) {
+  const blob = new Blob([text], { type: `${mimeType};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1191,7 +1279,7 @@ function setupExplainFeature() {
   const tooltip = document.createElement("div");
   tooltip.id = "explainTooltip";
   tooltip.className = "explain-tooltip";
-  tooltip.innerHTML = `<button class="explain-btn">💡 Explain</button>`;
+  tooltip.innerHTML = `<button class="explain-btn">💡 Explain</button><button class="explain-btn save-word-btn">＋ Save word</button>`;
   tooltip.style.display = "none";
   document.body.appendChild(tooltip);
 
@@ -1252,6 +1340,13 @@ function setupExplainFeature() {
       tooltip.style.display = "none";
       await showExplanation(selectedText);
     });
+  tooltip.querySelector(".save-word-btn").addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!selectedText) return;
+    tooltip.style.display = "none";
+    await saveVocabularyTerm(selectedText, getTranscriptContext(selectedText));
+  });
 }
 
 /**
@@ -1326,6 +1421,113 @@ function getTranscriptContext(selectedText) {
   const end = Math.min(fullText.length, index + selectedText.length + 200);
 
   return fullText.substring(start, end);
+}
+
+// ============================================================
+// VOCABULARY — local word/phrase collection and cross-video highlighting
+// ============================================================
+
+function normalizeVocabularyTerm(term) {
+  return String(term || "").trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, "").replace(/\s+/g, " ").toLowerCase();
+}
+
+async function loadVocabulary() {
+  const result = await chrome.storage.local.get(VOCABULARY_STORAGE_KEY);
+  savedVocabulary = Array.isArray(result[VOCABULARY_STORAGE_KEY]) ? result[VOCABULARY_STORAGE_KEY] : [];
+  renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
+  applyVocabularyHighlights();
+  return savedVocabulary;
+}
+
+async function saveVocabularyTerm(selectedText, context) {
+  const term = normalizeVocabularyTerm(selectedText);
+  if (!term || term.length > 100) return;
+  const source = {
+    videoId: currentVideoId,
+    videoTitle: currentVideoTitle,
+    url: `https://youtube.com/watch?v=${currentVideoId}`,
+    context: normalizeCaptionText(context),
+    addedAt: new Date().toISOString(),
+  };
+  const existing = savedVocabulary.find((item) => item.normalized === term);
+  if (existing) {
+    existing.lookupCount = (existing.lookupCount || 1) + 1;
+    existing.sources = Array.isArray(existing.sources) ? existing.sources : [];
+    if (!existing.sources.some((item) => item.videoId === currentVideoId && item.context === source.context)) existing.sources.unshift(source);
+  } else {
+    savedVocabulary.unshift({ id: crypto.randomUUID(), term: selectedText.trim(), normalized: term, note: "", status: "learning", lookupCount: 1, createdAt: new Date().toISOString(), sources: [source] });
+  }
+  await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  renderVocabulary();
+  applyVocabularyHighlights();
+}
+
+async function removeVocabularyTerm(id) {
+  savedVocabulary = savedVocabulary.filter((item) => item.id !== id);
+  await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
+  if (currentTranscriptMode === "original") renderTranscript(); else renderTranscriptModeRows(getActiveTranscriptSegments(), currentTranscriptMode);
+}
+
+function renderVocabulary(query = "") {
+  const list = document.getElementById("vocabularyList");
+  if (!list) return;
+  const needle = normalizeVocabularyTerm(query);
+  const items = savedVocabulary.filter((item) => !needle || item.normalized.includes(needle) || String(item.note || "").toLowerCase().includes(needle));
+  list.innerHTML = items.length ? "" : `<div class="vocabulary-empty">No saved vocabulary yet.</div>`;
+  items.forEach((item) => {
+    const row = document.createElement("article");
+    row.className = "vocabulary-item";
+    row.innerHTML = `<div class="vocabulary-item-head"><strong>${escapeHtml(item.term)}</strong><button class="note-delete" title="Delete word">✕</button></div><textarea placeholder="Meaning or personal note">${escapeHtml(item.note || "")}</textarea><div class="vocabulary-meta">Seen ${item.lookupCount || 1} time${item.lookupCount === 1 ? "" : "s"} · ${item.sources?.length || 0} source${item.sources?.length === 1 ? "" : "s"}</div>${item.sources?.[0]?.context ? `<p class="vocabulary-context">${escapeHtml(item.sources[0].context)}</p>` : ""}`;
+    row.querySelector("textarea").addEventListener("change", async (event) => { item.note = event.target.value.trim(); await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary }); });
+    row.querySelector(".note-delete").addEventListener("click", () => removeVocabularyTerm(item.id));
+    list.appendChild(row);
+  });
+}
+
+function applyVocabularyHighlights() {
+  const root = document.getElementById("transcriptList");
+  if (!root || !savedVocabulary.length) return;
+  root.querySelectorAll("mark.vocabulary-highlight").forEach((mark) => mark.replaceWith(document.createTextNode(mark.textContent)));
+  const terms = savedVocabulary.map((item) => item.normalized).filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!terms.length) return;
+  const escapedTerms = terms.map((term) =>
+    term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const pattern = new RegExp(
+    `(^|[^\\p{L}\\p{N}])(${escapedTerms.join("|")})(?=$|[^\\p{L}\\p{N}])`,
+    "giu",
+  );
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) if (!walker.currentNode.parentElement.closest(".transcript-time,.translation-error,button,mark")) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const text = node.nodeValue;
+    pattern.lastIndex = 0;
+    if (!pattern.test(text)) return;
+    pattern.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      const prefixLength = match[1].length;
+      const start = match.index + prefixLength;
+      fragment.append(document.createTextNode(text.slice(last, start)));
+      const mark = document.createElement("mark");
+      mark.className = "vocabulary-highlight";
+      mark.textContent = match[2];
+      mark.title = "Saved vocabulary";
+      fragment.append(mark);
+      last = start + match[2].length;
+    }
+    fragment.append(document.createTextNode(text.slice(last)));
+    node.replaceWith(fragment);
+  });
+}
+
+function exportVocabularyCsv() {
+  const quote = (value) => `"${String(value || "").replace(/"/g, '""')}"`;
+  const rows = [["term", "note", "status", "lookup_count", "source_video", "source_context"], ...savedVocabulary.map((item) => [item.term, item.note, item.status, item.lookupCount, item.sources?.[0]?.videoTitle, item.sources?.[0]?.context])];
+  downloadFile(`\uFEFF${rows.map((row) => row.map(quote).join(",")).join("\n")}`, "youtube-digest-vocabulary.csv", "text/csv");
 }
 
 // ============================================================
@@ -1842,6 +2044,7 @@ function renderTranscriptModeRows(segments, mode) {
   });
 
   startPlaybackTracking();
+  applyVocabularyHighlights();
   return rows;
 }
 
@@ -1895,6 +2098,7 @@ function updateTranslatedRow(segment, index, alignedItem, generation) {
   row.classList.toggle("translated", !!alignedItem.text);
   row.classList.toggle("translating", false);
   row.classList.toggle("translation-failed", !alignedItem.text);
+  applyVocabularyHighlights();
 
   const retry = row.querySelector(".translation-retry-btn");
   if (retry) {
