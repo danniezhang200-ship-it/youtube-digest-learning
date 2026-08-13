@@ -30,6 +30,16 @@ let ytdDigestButton = null;
 let digestButtonObserver = null;
 let digestButtonReconcileTimer = null;
 let digestButtonResizeListenerAdded = false;
+let inlineDigestContainer = null;
+let compactDigestTimer = null;
+let compactDigestSegments = [];
+let compactDigestMode = "bilingual";
+let compactDigestVideoId = "";
+let compactDigestLastCacheRefresh = 0;
+let compactDigestLoopIndex = -1;
+let compactDigestLoopGapMs = 1500;
+let compactDigestLoopWaiting = false;
+let compactDigestLoopTimeout = null;
 
 // ============================================================
 // INITIALIZATION
@@ -275,27 +285,256 @@ function createDigestButton() {
     digestButton.style.transform = "scale(1)";
   });
 
-  // Click handler — open the side panel
+  // Click handler — show the learning workspace below the video. Chrome's
+  // native side panel cannot be repositioned, so the same extension page is
+  // embedded in YouTube's watch layout instead.
   digestButton.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
 
     debugLog("[YouTube Digest] Digest button clicked");
 
-    // Send message to background script to open side panel
-    try {
-      const result = await chrome.runtime.sendMessage({
-        action: "openSidePanel",
-      });
-      debugLog("[YouTube Digest] openSidePanel response:", result);
-    } catch (err) {
-      console.error("[YouTube Digest] Failed to open side panel:", err);
-    }
+    toggleInlineDigest();
   });
 
   ytdDigestButton = digestButton;
   return digestButton;
 }
+
+async function toggleInlineDigest() {
+  const existing = document.getElementById("ytd-digest-inline");
+  if (existing) {
+    stopCompactDigest();
+    existing.remove();
+    inlineDigestContainer = null;
+    return;
+  }
+
+  const player = document.querySelector(
+    "#movie_player.html5-video-player, #movie_player, .html5-video-player",
+  );
+  if (!player) {
+    setTimeout(toggleInlineDigest, 300);
+    return;
+  }
+
+  const container = document.createElement("section");
+  container.id = "ytd-digest-inline";
+  container.innerHTML = `
+    <div class="ytd-digest-overlay-head"><span class="ytd-digest-overlay-status">正在读取学习缓存…</span><span class="ytd-digest-loop-controls" role="group" aria-label="句子循环跟读"><button type="button" data-loop-action="previous" title="上一句">‹</button><button type="button" data-loop-action="toggle" title="循环当前句">跟读</button><button type="button" data-loop-action="next" title="下一句">›</button><button type="button" data-loop-action="gap" title="切换跟读留白时间">留白 1.5s</button></span><span class="ytd-digest-overlay-modes" role="group" aria-label="字幕语言"><button type="button" data-mode="en">英文</button><button type="button" data-mode="bilingual">双语</button><button type="button" data-mode="zh">中文</button></span><button class="ytd-digest-inline-side" type="button">完整</button><button class="ytd-digest-inline-toggle" type="button">×</button></div>
+    <button class="ytd-digest-overlay-line" type="button"><span class="ytd-digest-overlay-time">0:00</span><span class="ytd-digest-overlay-copy"><span class="ytd-digest-overlay-en">准备字幕…</span><span class="ytd-digest-overlay-zh"></span></span></button>
+  `;
+  player.appendChild(container);
+  inlineDigestContainer = container;
+
+  container.querySelector(".ytd-digest-inline-toggle").addEventListener("click", () => toggleInlineDigest());
+  container.querySelector(".ytd-digest-inline-side").addEventListener("click", async () => {
+    try {
+      await chrome.runtime.sendMessage({ action: "openSidePanel" });
+    } catch (error) {
+      console.warn("[YouTube Digest] Could not open side panel:", error);
+    }
+  });
+  container.querySelectorAll("[data-loop-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handleCompactLoopAction(button.dataset.loopAction);
+    });
+  });
+  const videoId = new URL(location.href).searchParams.get("v") || "";
+  compactDigestVideoId = videoId;
+  const result = await chrome.runtime.sendMessage({ action: "getCompactTranscriptData", videoId });
+  if (!result?.success) {
+    container.querySelector(".ytd-digest-overlay-status").textContent = "正在等待右侧字幕…";
+    container.querySelector(".ytd-digest-overlay-en").textContent = "字幕生成后会自动显示，无需重新打开。";
+    compactDigestTimer = setInterval(refreshCompactDigestCache, 1000);
+    return;
+  }
+  const source = result.compactSegments?.length ? result.compactSegments : (result.transcript || []).map((item, index) => ({ id: `raw-${index}`, start: Number(item.start) || 0, text: item.text || "" }));
+  compactDigestMode = result.displayMode || "bilingual";
+  updateCompactModeButtons();
+  container.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      compactDigestMode = button.dataset.mode;
+      container.dataset.active = "";
+      updateCompactModeButtons();
+      renderCompactDigest();
+      await chrome.runtime.sendMessage({ action: "setCompactDisplayMode", mode: compactDigestMode });
+    });
+  });
+  const terms = [...(result.vocabulary || []), ...(result.learningItems || []).map((item) => item.term)];
+  compactDigestSegments = source.map((item) => ({ ...item, translation: result.paragraphCache?.[`${videoId}:zh:semantic:${item.id}`] || "", terms }));
+  container.querySelector(".ytd-digest-overlay-status").textContent = "跟随播放 · 复用精读缓存";
+  renderCompactDigest();
+  compactDigestTimer = setInterval(renderCompactDigest, 350);
+}
+
+function compactDigestHighlight(text, terms) {
+  let html = escapeHtmlForContent(text);
+  [...new Set(terms || [])].filter((term) => /^[A-Za-z][A-Za-z '-]{1,60}$/.test(term)).sort((a,b) => b.length-a.length).slice(0,400).forEach((term) => {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    html = html.replace(new RegExp(`\\b(${escaped})\\b`, "gi"), "<mark>$1</mark>");
+  });
+  return html;
+}
+
+function renderCompactDigest() {
+  const box = inlineDigestContainer;
+  const video = document.querySelector("video.html5-main-video");
+  if (!box?.isConnected || !video || !compactDigestSegments.length) return;
+  const now = video.currentTime || 0;
+  let index = compactDigestSegments.findIndex((item, i) => now >= item.start && now < (compactDigestSegments[i + 1]?.start ?? Infinity));
+  if (index < 0) index = 0;
+  if (compactDigestLoopIndex >= 0) {
+    index = Math.min(compactDigestLoopIndex, compactDigestSegments.length - 1);
+    const loopEnd = getCompactLoopEnd(index, video);
+    if (!compactDigestLoopWaiting && now >= loopEnd) {
+      compactDigestLoopWaiting = true;
+      video.pause();
+      compactDigestLoopTimeout = setTimeout(() => {
+        compactDigestLoopTimeout = null;
+        compactDigestLoopWaiting = false;
+        if (compactDigestLoopIndex < 0 || !video.isConnected) return;
+        video.currentTime = Number(compactDigestSegments[compactDigestLoopIndex]?.start) || 0;
+        video.play().catch(() => {});
+      }, compactDigestLoopGapMs);
+    }
+  }
+  const item = compactDigestSegments[index];
+  if (Date.now() - compactDigestLastCacheRefresh > 3000) {
+    compactDigestLastCacheRefresh = Date.now();
+    refreshCompactDigestCache();
+  }
+  if (box.dataset.active === item.id) return;
+  box.dataset.active = item.id;
+  const seconds = Math.max(0, Math.floor(item.start || 0));
+  box.querySelector(".ytd-digest-overlay-time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  box.querySelector(".ytd-digest-overlay-en").innerHTML = compactDigestHighlight(item.text, item.terms);
+  box.querySelector(".ytd-digest-overlay-zh").textContent = item.translation || "中文翻译尚未缓存，请在完整学习区生成";
+  box.classList.toggle("mode-en", compactDigestMode === "en");
+  box.classList.toggle("mode-zh", compactDigestMode === "zh");
+  box.classList.toggle("mode-bilingual", compactDigestMode === "bilingual");
+  box.querySelector(".ytd-digest-overlay-line").onclick = () => { video.currentTime = item.start; video.play().catch(() => {}); };
+}
+
+function getCompactLoopEnd(index, video) {
+  const start = Number(compactDigestSegments[index]?.start) || 0;
+  const nextStart = Number(compactDigestSegments[index + 1]?.start);
+  if (Number.isFinite(nextStart) && nextStart > start) return Math.max(start + 0.35, nextStart - 0.08);
+  if (Number.isFinite(video.duration) && video.duration > start) return video.duration;
+  return start + 5;
+}
+
+function getCompactPlaybackIndex(video) {
+  const now = video?.currentTime || 0;
+  const found = compactDigestSegments.findIndex((item, i) => now >= item.start && now < (compactDigestSegments[i + 1]?.start ?? Infinity));
+  return found < 0 ? 0 : found;
+}
+
+function clearCompactLoopWait() {
+  if (compactDigestLoopTimeout) clearTimeout(compactDigestLoopTimeout);
+  compactDigestLoopTimeout = null;
+  compactDigestLoopWaiting = false;
+}
+
+function handleCompactLoopAction(action) {
+  const video = document.querySelector("video.html5-main-video");
+  if (!video || !compactDigestSegments.length) return;
+
+  if (action === "toggle") {
+    if (compactDigestLoopIndex >= 0) {
+      compactDigestLoopIndex = -1;
+      clearCompactLoopWait();
+    } else {
+      compactDigestLoopIndex = getCompactPlaybackIndex(video);
+      video.currentTime = Number(compactDigestSegments[compactDigestLoopIndex]?.start) || 0;
+      video.play().catch(() => {});
+    }
+  } else if (action === "previous" || action === "next") {
+    const current = compactDigestLoopIndex >= 0 ? compactDigestLoopIndex : getCompactPlaybackIndex(video);
+    const offset = action === "previous" ? -1 : 1;
+    compactDigestLoopIndex = Math.max(0, Math.min(compactDigestSegments.length - 1, current + offset));
+    clearCompactLoopWait();
+    video.currentTime = Number(compactDigestSegments[compactDigestLoopIndex]?.start) || 0;
+    video.play().catch(() => {});
+  } else if (action === "gap") {
+    const gaps = [800, 1500, 2500];
+    compactDigestLoopGapMs = gaps[(gaps.indexOf(compactDigestLoopGapMs) + 1) % gaps.length];
+  }
+
+  inlineDigestContainer.dataset.active = "";
+  updateCompactLoopControls();
+  renderCompactDigest();
+}
+
+function updateCompactLoopControls() {
+  const toggle = inlineDigestContainer?.querySelector('[data-loop-action="toggle"]');
+  const gap = inlineDigestContainer?.querySelector('[data-loop-action="gap"]');
+  if (toggle) {
+    const active = compactDigestLoopIndex >= 0;
+    toggle.classList.toggle("active", active);
+    toggle.setAttribute("aria-pressed", String(active));
+    toggle.textContent = active ? "停止" : "跟读";
+  }
+  if (gap) gap.textContent = `留白 ${(compactDigestLoopGapMs / 1000).toFixed(1)}s`;
+}
+
+async function refreshCompactDigestCache() {
+  if (!compactDigestVideoId || !inlineDigestContainer?.isConnected) return;
+  compactDigestLastCacheRefresh = Date.now();
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: "getCompactTranscriptData",
+      videoId: compactDigestVideoId,
+    });
+    if (!result?.success) return;
+    const source = result.compactSegments?.length
+      ? result.compactSegments
+      : (result.transcript || []).map((item, index) => ({ id: `raw-${index}`, start: Number(item.start) || 0, text: item.text || "" }));
+    const terms = [...(result.vocabulary || []), ...(result.learningItems || []).map((item) => item.term)];
+    compactDigestSegments = source.map((item) => ({
+      ...item,
+      translation: result.paragraphCache?.[`${compactDigestVideoId}:zh:semantic:${item.id}`] || "",
+      terms,
+    }));
+    const status = inlineDigestContainer.querySelector(".ytd-digest-overlay-status");
+    if (status) status.textContent = "跟随播放 · 复用精读缓存";
+    inlineDigestContainer.dataset.active = "";
+    if (compactDigestTimer) clearInterval(compactDigestTimer);
+    compactDigestTimer = setInterval(renderCompactDigest, 350);
+    renderCompactDigest();
+  } catch (_) {
+    // Side panel may be rebuilding its cache; the next refresh will retry.
+  }
+}
+
+function updateCompactModeButtons() {
+  inlineDigestContainer?.querySelectorAll("[data-mode]").forEach((button) => {
+    const active = button.dataset.mode === compactDigestMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function stopCompactDigest() {
+  if (compactDigestTimer) clearInterval(compactDigestTimer);
+  compactDigestTimer = null;
+  compactDigestSegments = [];
+  compactDigestVideoId = "";
+  compactDigestLastCacheRefresh = 0;
+  compactDigestLoopIndex = -1;
+  clearCompactLoopWait();
+}
+
+const compactDigestStyle = document.createElement("style");
+compactDigestStyle.textContent = `
+#ytd-digest-inline{position:absolute;z-index:61;left:9%;right:9%;bottom:50px;min-height:78px;border:1px solid rgba(255,255,255,.18);border-radius:12px;background:rgba(18,17,15,.76);color:#fff;overflow:hidden;font-family:Roboto,Arial,sans-serif;box-shadow:0 5px 22px rgba(0,0,0,.3);backdrop-filter:blur(7px)}
+.ytd-digest-overlay-head{height:26px;padding:2px 6px 0;display:flex;align-items:center;gap:5px;opacity:.62;transition:opacity .15s}#ytd-digest-inline:hover .ytd-digest-overlay-head{opacity:1}.ytd-digest-overlay-status{flex:1;padding-left:7px;color:#ddd;font-size:10px}.ytd-digest-overlay-head button{border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(0,0,0,.28);padding:2px 7px;color:#fff;cursor:pointer;font-size:10px}.ytd-digest-overlay-modes,.ytd-digest-loop-controls{display:flex;gap:3px}.ytd-digest-overlay-modes button.active,.ytd-digest-loop-controls button.active{background:#c8674f;border-color:#dc8b76;font-weight:700}.ytd-digest-loop-controls button:first-child,.ytd-digest-loop-controls button:nth-child(3){font-size:15px;line-height:11px;padding-inline:6px}
+.ytd-digest-overlay-line{width:100%;min-height:52px;padding:0 14px 9px;display:grid;grid-template-columns:42px 1fr;gap:8px;align-items:center;text-align:left;border:0;background:transparent;color:#fff;cursor:pointer}.ytd-digest-overlay-time{font:600 11px ui-monospace,Menlo,monospace;color:#ef9b82}.ytd-digest-overlay-copy,.ytd-digest-overlay-en,.ytd-digest-overlay-zh{display:block}.ytd-digest-overlay-en{font-size:16px;font-weight:600;line-height:1.35;text-shadow:0 1px 3px #000}.ytd-digest-overlay-zh{font-size:14px;line-height:1.35;margin-top:3px;color:#f3eee7;text-shadow:0 1px 3px #000}.ytd-digest-overlay-en mark{background:#f1cf67;color:#211c16;border-radius:3px;padding:0 2px;text-shadow:none}#ytd-digest-inline.mode-en .ytd-digest-overlay-zh{display:none}#ytd-digest-inline.mode-zh .ytd-digest-overlay-en{display:none}#ytd-digest-inline.mode-zh .ytd-digest-overlay-zh{margin-top:0;font-size:16px}
+@media(max-width:1100px){.ytd-digest-overlay-status{display:none}}@media(max-width:900px){#ytd-digest-inline{left:3%;right:3%;bottom:44px}.ytd-digest-loop-controls [data-loop-action="gap"]{display:none}.ytd-digest-overlay-line{padding:0 10px 9px;grid-template-columns:40px 1fr}.ytd-digest-overlay-en{font-size:14px}.ytd-digest-overlay-zh{font-size:13px}}
+`;
+(document.head || document.documentElement || document.body)?.appendChild(compactDigestStyle);
 
 /**
  * Reconciles the Digest button with YouTube's currently visible action row.
@@ -814,6 +1053,9 @@ document.addEventListener("yt-navigate-finish", () => {
     .querySelectorAll("#ytd-digest-button")
     .forEach((button) => button.remove());
   ytdDigestButton = null;
+  document.getElementById("ytd-digest-inline")?.remove();
+  stopCompactDigest();
+  inlineDigestContainer = null;
   if (digestButtonReconcileTimer) {
     clearTimeout(digestButtonReconcileTimer);
     digestButtonReconcileTimer = null;

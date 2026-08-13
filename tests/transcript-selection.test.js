@@ -62,6 +62,8 @@ test("selected transcript text can be saved to local vocabulary", () => {
 test("transcript export supports bilingual printable output", () => {
   assert.match(source, /function openExportDialog\(\)/);
   assert.match(source, /value="bilingual"/);
-  assert.match(source, /Printable HTML \/ PDF/);
+  assert.match(source, /英语精读 PDF（推荐）/);
+  assert.match(source, /ipaUk/);
+  assert.match(source, /printWindow\.print/);
   assert.match(source, /function exportTranscriptAdvanced\(options\)/);
 });

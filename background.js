@@ -334,6 +334,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "analyzeLearningItems") {
+    handleAnalyzeLearningItems(
+      message.transcriptText,
+      message.videoTitle,
+      message.intensity,
+      message.profile,
+    )
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (message.action === "saveNote") {
     // Save a note at the current timestamp
     handleSaveNote(
@@ -392,6 +404,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }),
       )
       .catch((error) => sendResponse({ error: error.message }));
+    return true;
+  }
+
+  if (message.action === "getCompactTranscriptData") {
+    (async () => {
+      const videoId = String(message.videoId || "").trim();
+      if (!/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) return sendResponse({ success: false, error: "Invalid video ID" });
+      const stored = await chrome.storage.local.get(null);
+      const cached = stored[`digest_${videoId}`];
+      if (!cached?.transcript?.length) return sendResponse({ success: false, error: "NOT_CACHED" });
+      const learningKey = Object.keys(stored)
+        .filter((key) => key.startsWith(`learning_v4_${videoId}_`))
+        .sort((a, b) => String(stored[b]?.createdAt || "").localeCompare(String(stored[a]?.createdAt || "")))[0];
+      sendResponse({
+        success: true,
+        transcript: cached.transcript,
+        compactSegments: cached.compactSegments || [],
+        paragraphCache: cached.paragraphCache || {},
+        vocabulary: (stored.ytd_vocabulary || []).map((item) => String(item?.term || "")).filter(Boolean),
+        learningItems: stored[learningKey]?.items || [],
+        displayMode: ["en", "bilingual", "zh"].includes(stored.ytd_compact_display_mode)
+          ? stored.ytd_compact_display_mode
+          : "bilingual",
+      });
+    })().catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.action === "setCompactDisplayMode") {
+    const mode = String(message.mode || "");
+    if (!["en", "bilingual", "zh"].includes(mode)) {
+      sendResponse({ success: false, error: "Invalid display mode" });
+      return false;
+    }
+    chrome.storage.local
+      .set({ ytd_compact_display_mode: mode })
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
@@ -533,6 +583,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 });
+
+async function handleAnalyzeLearningItems(
+  transcriptText,
+  videoTitle,
+  intensity = "balanced",
+  profile = {},
+) {
+  try {
+    const text = String(transcriptText || "").trim();
+    if (!text) return { success: false, error: "Transcript is empty." };
+    const density = { light: "2-4", balanced: "5-8", deep: "9-13" }[intensity] || "5-8";
+    const known = Array.isArray(profile.known) ? profile.known.slice(0, 300) : [];
+    const fuzzy = Array.isArray(profile.fuzzy) ? profile.fuzzy.slice(0, 300) : [];
+    const learning = Array.isArray(profile.learning) ? profile.learning.slice(0, 500) : [];
+    const systemPrompt = `You are the editor of a polished bilingual English intensive-reading workbook for a Chinese learner whose receptive level is approximately CEFR B2 and whose target frontier is upper-B2 to C1. Select only high-value learning material. Prioritize reusable idiomatic phrases, collocations, phrasal verbs, abstract vocabulary, and memorable sentences. Never select items on the mastered list. When fuzzy or learning-list items occur naturally in the transcript, prioritize them and their useful collocations; also infer adjacent items of comparable difficulty so recommendations adapt to the learner over time. Avoid proper nouns, obvious B1 words, transcript errors, and duplicate variants. Aim for ${density} candidates per 500 words, but return no more than 12 words, 15 phrases, and 5 sentences. Every term and sourceContext must appear verbatim in the transcript. For type=word, provide accurate UK and US IPA and a compact part of speech such as v., n., adj., or adv. For phrases and sentences leave ipaUk, ipaUs, and partOfSpeech empty. Also edit the video's ideas into concise study material. Return JSON only with this shape: {"items":[{"term":"exact surface text","type":"word|phrase|sentence","ipaUk":"/UK IPA or empty/","ipaUs":"/US IPA or empty/","partOfSpeech":"v.|n.|adj.|adv.|empty","meaningZh":"contextual Chinese meaning","sourceContext":"short exact original sentence","reasonZh":"short reason it is worth learning","level":"B2|C1","example":"one short reusable English example"}],"guide":{"topicZh":"one-line topic","coreQuestion":"one thought-provoking English question","ideas":["3 to 5 concise Chinese insights"],"criticalQuestions":["2 Chinese critical-reading questions"],"retelling":"a natural 70-100 word English retelling model","personalResponse":"a 4-sentence English response scaffold tailored to the topic"}}.`;
+    const userPrompt = `Video: ${videoTitle || "Untitled"}\nMastered (exclude): ${known.join(", ") || "none"}\nFuzzy (prioritize when present): ${fuzzy.join(", ") || "none"}\nLearning vocabulary (prioritize and infer similar level): ${learning.join(", ") || "none"}\n\nTranscript:\n${text.slice(0, 60000)}`;
+    const { text: responseText } = await requestAiCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      maxTokens: 6000,
+      responseFormat: { type: "json_object" },
+    });
+    const parsed = parseLooseJson(responseText);
+    const seen = new Set();
+    const items = (Array.isArray(parsed?.items) ? parsed.items : [])
+      .map((item) => ({
+        term: String(item?.term || "").trim(),
+        type: ["word", "phrase", "sentence"].includes(item?.type) ? item.type : "phrase",
+        ipaUk: String(item?.ipaUk || "").trim(),
+        ipaUs: String(item?.ipaUs || "").trim(),
+        partOfSpeech: String(item?.partOfSpeech || "").trim(),
+        meaningZh: String(item?.meaningZh || "").trim(),
+        sourceContext: String(item?.sourceContext || "").trim(),
+        reasonZh: String(item?.reasonZh || "").trim(),
+        level: ["B2", "C1"].includes(item?.level) ? item.level : "B2",
+        example: String(item?.example || "").trim(),
+      }))
+      .filter((item) => item.term.length >= 2 && item.term.length <= 180)
+      .filter((item) => text.toLocaleLowerCase().includes(item.term.toLocaleLowerCase()))
+      .filter((item) => {
+        const key = item.term.toLocaleLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 40);
+    const guideSource = parsed?.guide && typeof parsed.guide === "object" ? parsed.guide : {};
+    const guide = {
+      topicZh: String(guideSource.topicZh || "").trim(),
+      coreQuestion: String(guideSource.coreQuestion || "").trim(),
+      ideas: (Array.isArray(guideSource.ideas) ? guideSource.ideas : []).map(String).map((value) => value.trim()).filter(Boolean).slice(0, 5),
+      criticalQuestions: (Array.isArray(guideSource.criticalQuestions) ? guideSource.criticalQuestions : []).map(String).map((value) => value.trim()).filter(Boolean).slice(0, 2),
+      retelling: String(guideSource.retelling || "").trim(),
+      personalResponse: String(guideSource.personalResponse || "").trim(),
+    };
+    return { success: true, items, guide };
+  } catch (error) {
+    console.error("[YouTube Digest] Learning analysis error:", error);
+    return { success: false, error: error.message || "Learning analysis failed" };
+  }
+}
 
 /**
  * Reads the current video's full details straight from YouTube's player.
@@ -1576,7 +1690,29 @@ async function handleTranslateContent(
     }
     if (!result.success) return result;
 
-    const parsed = parseLooseJson(result.text);
+    let parsed;
+    try {
+      parsed = parseLooseJson(result.text);
+    } catch (_parseError) {
+      // Providers can occasionally emit an unescaped quote or truncate one
+      // array item even in JSON mode. Retry the small batch once instead of
+      // surfacing a service-worker error to Chrome's extension error page.
+      result = await callAiTranslation(
+        `${systemPrompt}\nYour previous response was invalid JSON. Return one complete JSON object only. Escape quotation marks inside translated text and include every requested segment ID.`,
+        userContent,
+        translationOptions,
+      );
+      if (!result.success) return result;
+      try {
+        parsed = parseLooseJson(result.text);
+      } catch (_retryParseError) {
+        return {
+          success: false,
+          error: "DeepSeek returned malformed translation data. Please Retry.",
+          code: "INVALID_AI_JSON",
+        };
+      }
+    }
     const aligned = normalizeTranslatedSegmentBatch(parsed, sourceSegments);
     if (!aligned.segments.some((segment) => segment.text)) {
       return {
@@ -1586,7 +1722,10 @@ async function handleTranslateContent(
     }
     return { success: true, translatedContent: aligned };
   } catch (error) {
-    console.error("[YouTube Digest] Translation error:", error);
+    // Translation failures are handled inline by the side panel. Logging them
+    // as warnings avoids Chrome marking a recovered provider response as an
+    // extension implementation error.
+    console.warn("[YouTube Digest] Translation warning:", error);
     return { success: false, error: error.message || "Translation failed" };
   }
 }

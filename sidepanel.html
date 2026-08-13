@@ -114,6 +114,12 @@
                 </div>
               </div>
               <div class="transcript-actions">
+                <select id="learningIntensity" class="learning-intensity" title="Smart reading intensity">
+                  <option value="light">轻量</option>
+                  <option value="balanced" selected>均衡</option>
+                  <option value="deep">深度</option>
+                </select>
+                <button class="enhance-btn smart-reading-btn" id="smartReadingBtn">智能精读</button>
                 <button class="enhance-btn" id="copyTranscriptBtn">Copy</button>
                 <button class="enhance-btn" id="exportTranscriptBtn">
                   Export
@@ -204,6 +210,19 @@
             <p class="notes-intro" id="vocabularyIntro">
               Select a word or phrase in the transcript, then choose “Save word”. Saved vocabulary is highlighted across videos.
             </p>
+            <section class="review-center" id="reviewCenter">
+              <div class="review-summary">
+                <div><span id="reviewDueCount">0</span><small>今日待复习</small></div>
+                <div><span id="reviewTodayCount">0/20</span><small>今日已复习</small></div>
+                <div><span id="reviewNewCount">0/10</span><small>今日新词</small></div>
+              </div>
+              <p class="review-limit-note" id="reviewLimitNote">每天最多 10 个新词、20 个复习项，超出部分自动顺延。</p>
+              <button class="enhance-btn review-start-btn" id="startReviewBtn" type="button">开始今日复习</button>
+              <div class="review-session" id="reviewSession" hidden>
+                <div class="review-progress" id="reviewProgress"></div>
+                <article class="review-card" id="reviewCard"></article>
+              </div>
+            </section>
             <input class="vocabulary-search" id="vocabularySearch" type="search" placeholder="Search saved words" />
             <div id="vocabularyList"></div>
           </div>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Digest Learning",
-  "version": "1.2.0",
+  "version": "1.4.1",
   "minimum_chrome_version": "116",
   "description": "Learn from YouTube with bilingual transcripts, vocabulary highlighting, printable exports, AI overviews, and notes.",
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],
@@ -33,6 +33,12 @@
       "matches": ["https://www.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sidepanel.html", "sidepanel.css", "sidepanel.js"],
+      "matches": ["https://www.youtube.com/*"]
     }
   ],
   "icons": {

@@ -40,7 +40,18 @@ let transcriptScrollObserver = null;
 let transcriptParagraphCache = new Map();
 const TRANSLATION_MESSAGE_TIMEOUT_MS = 130_000;
 const VOCABULARY_STORAGE_KEY = "ytd_vocabulary";
+const LEARNING_PROFILE_STORAGE_KEY = "ytd_learning_profile";
+const REVIEW_DAILY_STORAGE_KEY = "ytd_review_daily";
+const DAILY_NEW_LIMIT = 10;
+const DAILY_REVIEW_LIMIT = 20;
 let savedVocabulary = [];
+let learningItems = [];
+let learningGuide = {};
+let learningProfile = { known: [], fuzzy: [] };
+let reviewQueue = [];
+let reviewQueueIndex = 0;
+let reviewDailyState = { date: "", reviewed: 0, newReviewed: 0 };
+let isLearningAnalysisLoading = false;
 
 /**
  * Prevent a stopped service worker or dead message channel from leaving the
@@ -385,8 +396,14 @@ function setupEventListeners() {
     .getElementById("exportVocabularyBtn")
     ?.addEventListener("click", exportVocabularyCsv);
   document
+    .getElementById("smartReadingBtn")
+    ?.addEventListener("click", runSmartReading);
+  document
     .getElementById("vocabularySearch")
     ?.addEventListener("input", (event) => renderVocabulary(event.target.value));
+  document
+    .getElementById("startReviewBtn")
+    ?.addEventListener("click", startVocabularyReview);
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
@@ -546,6 +563,9 @@ async function startDigest(videoId, videoUrl) {
   // Every video change invalidates observer work and in-flight translations.
   if (videoId !== currentVideoId) {
     translationGeneration += 1;
+    learningItems = [];
+    learningGuide = {};
+    isLearningAnalysisLoading = false;
     if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
     transcriptScrollObserver = null;
   }
@@ -595,6 +615,7 @@ async function startDigest(videoId, videoUrl) {
     // Setup explain feature
     setupExplainFeature();
     if (currentTranscriptMode !== "original") translateTranscript();
+    void runSmartReading({ automatic: true });
     return;
   }
 
@@ -653,6 +674,7 @@ async function startDigest(videoId, videoUrl) {
   // Setup explain feature for text selection
   setupExplainFeature();
   if (currentTranscriptMode !== "original") translateTranscript();
+  void runSmartReading({ automatic: true });
 
   // Save transcript to cache (without analysis)
   await saveToCache(videoId);
@@ -875,6 +897,7 @@ function renderTranscript() {
   });
 
   applyVocabularyHighlights();
+  applyLearningHighlights();
 
   // Start tracking video playback for auto-scroll
   startPlaybackTracking();
@@ -928,7 +951,7 @@ function openExportDialog() {
       <div class="explain-modal-header"><div class="explain-modal-title">Export transcript</div><button class="explain-modal-close" data-close>✕</button></div>
       <div class="export-options">
         <label>Language<select id="exportLanguage"><option value="original">English / original</option><option value="zh">中文</option><option value="bilingual">双语（上英下中）</option></select></label>
-        <label>Format<select id="exportFormat"><option value="html">Printable HTML / PDF</option><option value="md">Markdown</option><option value="txt">Plain text</option></select></label>
+        <label>Format<select id="exportFormat"><option value="study_pdf">英语精读 PDF（推荐）</option><option value="study">英语精读 HTML</option><option value="html">普通逐字稿 HTML</option><option value="md">Markdown</option><option value="txt">Plain text</option></select></label>
         <label class="export-checkbox"><input id="exportTimestamps" type="checkbox" checked /> Include timestamps</label>
         <label class="export-checkbox"><input id="exportWords" type="checkbox" checked /> Append this video's vocabulary</label>
         <p class="export-hint">For Chinese or bilingual export, first open that transcript mode and let all visible segments finish translating.</p>
@@ -968,6 +991,10 @@ function exportTranscriptAdvanced(options) {
     return `${stamp}${row.original}`;
   };
   const suffix = options.language === "bilingual" ? "-bilingual" : options.language === "zh" ? "-zh" : "-original";
+  if (options.format === "study" || options.format === "study_pdf") {
+    exportIntensiveReading(rows, meta, words, options.format === "study_pdf");
+    return;
+  }
   if (options.format === "html") {
     const body = rows.map((row) => `<section class="line"><div class="time">${options.timestamps ? escapeHtml(row.timestamp) : ""}</div><div>${options.language !== "zh" ? `<p class="original">${escapeHtml(row.original)}</p>` : ""}${options.language !== "original" ? `<p class="translation">${escapeHtml(row.translated)}</p>` : ""}</div></section>`).join("");
     const wordList = words.length ? `<section class="word-list"><h2>Vocabulary</h2>${words.map((word) => `<p><strong>${escapeHtml(word.term)}</strong>${word.note ? ` — ${escapeHtml(word.note)}` : ""}</p>`).join("")}</section>` : "";
@@ -979,6 +1006,62 @@ function exportTranscriptAdvanced(options) {
   let output = heading + rows.map(lineText).join("\n\n");
   if (words.length) output += `\n\n${options.format === "md" ? "## Vocabulary" : "VOCABULARY"}\n\n${words.map((word) => `- ${word.term}${word.note ? ` — ${word.note}` : ""}`).join("\n")}`;
   downloadFile(output, `${sanitizeFilename(title)}${suffix}.${options.format}`, "text/plain");
+}
+
+function exportIntensiveReading(rows, meta, words, printAsPdf = false) {
+  const curatedItems = [
+    ...learningItems.filter((item) => item.type === "word").slice(0, 12),
+    ...learningItems.filter((item) => item.type === "phrase").slice(0, 15),
+    ...learningItems.filter((item) => item.type === "sentence").slice(0, 5),
+  ];
+  const highlight = (text) => {
+    let html = escapeHtml(text);
+    [...curatedItems].sort((a, b) => b.term.length - a.term.length).forEach((item) => {
+      const escaped = escapeHtml(item.term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=$|[^\\p{L}\\p{N}])`, "giu"), `$1<mark class="${item.type}">$2</mark>`);
+    });
+    return html;
+  };
+  const mergedRows = [];
+  rows.forEach((row) => {
+    const previous = mergedRows.at(-1);
+    const combinedLength = (previous?.original.length || 0) + row.original.length;
+    if (previous && combinedLength < 620) {
+      previous.original = `${previous.original} ${row.original}`;
+      previous.translated = `${previous.translated} ${row.translated}`.trim();
+    } else {
+      mergedRows.push({ ...row });
+    }
+  });
+  const lines = mergedRows.map((row, index) => `<section class="line"><div class="time">${String(index + 1).padStart(2, "0")} · ${escapeHtml(row.timestamp)}</div><div><p class="en">${highlight(row.original)}</p>${row.translated ? `<p class="zh">${escapeHtml(row.translated)}</p>` : ""}</div></section>`).join("");
+  const byType = (type) => curatedItems.filter((item) => item.type === type);
+  const cards = (items, vocabulary = false) => items.length ? `<div class="cards">${items.map((item, index) => `<article class="card"><div class="card-index">${String(index + 1).padStart(2, "0")}</div><div><h3>${escapeHtml(item.term)} ${item.partOfSpeech ? `<span class="pos">${escapeHtml(item.partOfSpeech)}</span>` : ""} <small>${escapeHtml(item.level)}</small></h3>${vocabulary && (item.ipaUk || item.ipaUs) ? `<p class="ipa">UK ${escapeHtml(item.ipaUk || "-")} &nbsp; US ${escapeHtml(item.ipaUs || "-")}</p>` : ""}<p class="meaning">${escapeHtml(item.meaningZh)}</p>${item.sourceContext ? `<p class="context"><b>原文</b> ${escapeHtml(item.sourceContext)}</p>` : ""}<p class="why">${escapeHtml(item.reasonZh)}</p>${item.example ? `<p class="example"><b>Example</b> ${escapeHtml(item.example)}</p>` : ""}</div></article>`).join("")}</div>` : `<p class="muted">本视频暂未生成这一类内容。</p>`;
+  const savedTerms = new Set(words.map((word) => normalizeVocabularyTerm(word.term)));
+  const savedBadges = savedTerms.size ? `<p class="saved-note">★ 表示已加入个人生词本</p>` : "";
+  const topic = learningGuide.topicZh || "从真实对话中学习自然英语表达与思考方式";
+  const coreQuestion = learningGuide.coreQuestion || "What is the most useful idea in this conversation, and why?";
+  const ideas = (learningGuide.ideas || []).map((idea, index) => `<div class="idea"><b>0${index + 1}</b><span>${escapeHtml(idea)}</span></div>`).join("");
+  const critical = (learningGuide.criticalQuestions || []).map((question) => `<li>${escapeHtml(question)}</li>`).join("");
+  const retelling = learningGuide.retelling || "This episode is mainly about… The speaker argues that… One example that stood out to me was…";
+  const personalResponse = learningGuide.personalResponse || "From my perspective… This connects with my experience because… One action I want to take is…";
+  const quoteSection = byType("sentence").length ? `<section class="section"><div class="kicker">MEMORABLE LINES</div><h2>QUOTES WORTH KEEPING</h2>${cards(byType("sentence"))}</section>` : "";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(meta.title)} · 英语精读</title><style>
+  :root{--navy:#173a5e;--blue:#2774aa;--pale:#edf5f9;--ink:#26333f;--muted:#687887;--orange:#c57918;--rule:#cedde7}
+  *{box-sizing:border-box}@page{size:A4;margin:16mm 17mm 18mm}html{background:#eef1f3}body{font:10.3pt/1.58 Arial,"PingFang SC",sans-serif;color:var(--ink);max-width:210mm;margin:20px auto;background:#fff;padding:16mm 17mm;box-shadow:0 4px 20px #0002}.cover{min-height:250mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.kicker{font-size:9pt;letter-spacing:.08em;color:var(--blue);margin-bottom:8px}.cover h1{font-size:26pt;line-height:1.24;color:var(--navy);max-width:160mm;margin:8px 0}.cover .topic{font-size:14pt;color:var(--navy);margin:8px 0 26px}.chapter-band{width:135mm;padding:12px;background:var(--pale);border:1px solid var(--rule);color:var(--muted)}.cover .features{margin-top:42px;color:var(--muted)}.meta{margin-top:70px;font-size:8.5pt;color:var(--muted)}.section{break-before:page}.section.compact{break-before:auto;margin-top:34px}h2{font-size:20pt;color:var(--navy);font-weight:500;margin:0 0 16px;padding-bottom:11px;border-bottom:1px solid var(--rule)}h3{color:var(--navy)}.guide-list{line-height:2}.core-question{margin:24px auto;padding:13px 18px;background:var(--pale);border:1px solid var(--rule);text-align:center;color:var(--navy)}.line{padding:15px 0;border-bottom:1px solid var(--rule);break-inside:avoid}.time{font-size:8.2pt;color:var(--blue);margin-bottom:5px}.line p{margin:0}.line .en{font-size:10.7pt;line-height:1.55}.line .zh{margin-top:7px;color:#435564}mark{background:transparent;color:var(--orange);padding:0}.phrase{color:var(--navy);border-bottom:1.5px solid var(--blue)}.sentence{color:var(--orange);font-weight:600}.cards{display:grid;grid-template-columns:1fr 1fr;column-gap:24px}.card{display:grid;grid-template-columns:25px 1fr;gap:8px;padding:11px 0;border-bottom:1px solid var(--rule);break-inside:avoid}.card-index{font-size:8pt;color:var(--blue);padding-top:4px}.card h3{font-size:12pt;margin:0 0 3px}.card p{margin:3px 0}.pos,small{font-size:8pt;color:var(--orange)}.ipa{font-size:8.6pt;color:var(--muted)}.meaning{font-weight:600}.context,.example{font-size:9pt}.context b,.example b{color:var(--blue)}.why{font-size:8.8pt;color:var(--muted)}.saved-note{color:var(--orange);font-size:8.5pt}.idea{display:grid;grid-template-columns:30px 1fr;gap:12px;padding:13px 0;border-bottom:1px solid var(--rule)}.idea b{color:var(--blue)}.questions,.practice{margin-top:22px;padding:16px 18px;background:var(--pale);border:1px solid var(--rule)}.practice p{line-height:1.75}.writing-lines{height:65px;background:repeating-linear-gradient(to bottom,transparent 0,transparent 25px,var(--rule) 26px)}a{color:inherit;text-decoration:none}@media print{html{background:#fff}body{margin:0;max-width:none;padding:0;box-shadow:none}.cover{min-height:250mm}}
+  </style></head><body><section class="cover"><div class="kicker">PODCAST DEEP READING · PERSONAL EDITION</div><h1>${escapeHtml(meta.title)}</h1><p class="topic">${escapeHtml(topic)}</p><div class="chapter-band">Bilingual transcript · Personalized vocabulary · Natural expressions · Speaking practice</div><p class="features">英中对照精读 · 个性化选词 · 金句收藏 · 口语复述训练</p><p class="meta">${escapeHtml(meta.channel)} · ${escapeHtml(meta.url)}</p></section><section class="section"><div class="kicker">LEARNING GUIDE</div><h2>HOW TO USE THIS CHAPTER</h2><ol class="guide-list"><li>第一遍听：不查词，先理解主线。</li><li>第二遍精读：先读英文，再对照中文和橙色重点。</li><li>第三遍跟读：模仿重音、停顿和语气。</li><li>最后复述：使用文末参考稿，转化为自己的表达。</li></ol><div class="core-question">${escapeHtml(coreQuestion)}</div></section><section class="section"><div class="kicker">BILINGUAL TRANSCRIPT</div><h2>中英对照精读</h2>${lines}</section><section class="section"><div class="kicker">LANGUAGE NOTES</div><h2>KEY VOCABULARY</h2>${savedBadges}${cards(byType("word"), true)}</section><section class="section"><div class="kicker">NATURAL ENGLISH</div><h2>USEFUL PHRASES</h2>${cards(byType("phrase"))}</section>${quoteSection}<section class="section"><div class="kicker">IDEAS & CRITICAL READING</div><h2>IDEAS TO TAKE AWAY</h2>${ideas || `<p>请写下本期最值得保留的三个观点。</p>`}<div class="questions"><h3>Critical Questions</h3><ol>${critical || `<li>这个观点适用于所有情境吗？</li><li>有哪些可能的反例？</li>`}</ol></div></section><section class="section"><div class="kicker">SPEAKING PRACTICE</div><h2>RETELL & RESPOND</h2><div class="practice"><h3>30-second retelling · 参考稿</h3><p>${escapeHtml(retelling)}</p></div><div class="practice"><h3>60-second personal response · 表达框架</h3><p>${escapeHtml(personalResponse)}</p><div class="writing-lines"></div></div></section></body></html>`;
+  if (printAsPdf) {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Chrome 阻止了打印窗口。请允许弹出式窗口后重试。");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.addEventListener("load", () => setTimeout(() => printWindow.print(), 250), { once: true });
+    return;
+  }
+  downloadFile(html, `${sanitizeFilename(meta.title)}-intensive-reading.html`, "text/html");
 }
 
 // ============================================================
@@ -1432,8 +1515,18 @@ function normalizeVocabularyTerm(term) {
 }
 
 async function loadVocabulary() {
-  const result = await chrome.storage.local.get(VOCABULARY_STORAGE_KEY);
+  const result = await chrome.storage.local.get([VOCABULARY_STORAGE_KEY, REVIEW_DAILY_STORAGE_KEY]);
   savedVocabulary = Array.isArray(result[VOCABULARY_STORAGE_KEY]) ? result[VOCABULARY_STORAGE_KEY] : [];
+  reviewDailyState = normalizeReviewDailyState(result[REVIEW_DAILY_STORAGE_KEY]);
+  let migrated = false;
+  savedVocabulary.forEach((item) => {
+    if (!item.review) {
+      item.review = createInitialReviewState(item);
+      migrated = true;
+    }
+  });
+  if (migrated) await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  updateReviewCenter();
   renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
   applyVocabularyHighlights();
   return savedVocabulary;
@@ -1455,9 +1548,10 @@ async function saveVocabularyTerm(selectedText, context) {
     existing.sources = Array.isArray(existing.sources) ? existing.sources : [];
     if (!existing.sources.some((item) => item.videoId === currentVideoId && item.context === source.context)) existing.sources.unshift(source);
   } else {
-    savedVocabulary.unshift({ id: crypto.randomUUID(), term: selectedText.trim(), normalized: term, note: "", status: "learning", lookupCount: 1, createdAt: new Date().toISOString(), sources: [source] });
+    savedVocabulary.unshift({ id: crypto.randomUUID(), term: selectedText.trim(), normalized: term, note: "", status: "learning", lookupCount: 1, createdAt: new Date().toISOString(), sources: [source], review: createInitialReviewState() });
   }
   await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  updateReviewCenter();
   renderVocabulary();
   applyVocabularyHighlights();
 }
@@ -1465,8 +1559,159 @@ async function saveVocabularyTerm(selectedText, context) {
 async function removeVocabularyTerm(id) {
   savedVocabulary = savedVocabulary.filter((item) => item.id !== id);
   await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  updateReviewCenter();
   renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
   if (currentTranscriptMode === "original") renderTranscript(); else renderTranscriptModeRows(getActiveTranscriptSegments(), currentTranscriptMode);
+}
+
+function createInitialReviewState(item = {}) {
+  const mastered = item.status === "known" || item.status === "mastered";
+  return {
+    dueAt: mastered ? new Date(Date.now() + 14 * 86400000).toISOString() : new Date().toISOString(),
+    intervalDays: mastered ? 14 : 0,
+    repetitions: 0,
+    lapses: 0,
+    lastReviewedAt: null,
+    lastRating: null,
+  };
+}
+
+function isVocabularyDue(item, now = Date.now()) {
+  const due = Date.parse(item.review?.dueAt || "");
+  return !Number.isFinite(due) || due <= now;
+}
+
+function getLocalReviewDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeReviewDailyState(value) {
+  const today = getLocalReviewDate();
+  if (!value || value.date !== today) return { date: today, reviewed: 0, newReviewed: 0 };
+  return {
+    date: today,
+    reviewed: Math.max(0, Number(value.reviewed) || 0),
+    newReviewed: Math.max(0, Number(value.newReviewed) || 0),
+  };
+}
+
+function wasReviewedToday(item) {
+  const last = item.review?.lastReviewedAt;
+  return Boolean(last) && getLocalReviewDate(new Date(last)) === getLocalReviewDate();
+}
+
+function getEligibleReviewItems() {
+  reviewDailyState = normalizeReviewDailyState(reviewDailyState);
+  const remainingReviews = Math.max(0, DAILY_REVIEW_LIMIT - reviewDailyState.reviewed);
+  const remainingNew = Math.max(0, DAILY_NEW_LIMIT - reviewDailyState.newReviewed);
+  const due = savedVocabulary
+    .filter((item) => isVocabularyDue(item) && !wasReviewedToday(item))
+    .sort((a, b) => Date.parse(a.review?.dueAt || 0) - Date.parse(b.review?.dueAt || 0));
+  const established = due.filter((item) => (item.review?.repetitions || 0) > 0);
+  const newItems = due.filter((item) => (item.review?.repetitions || 0) === 0).slice(0, remainingNew);
+  return [...established, ...newItems].slice(0, remainingReviews);
+}
+
+function updateReviewCenter() {
+  reviewDailyState = normalizeReviewDailyState(reviewDailyState);
+  const allDue = savedVocabulary.filter((item) => isVocabularyDue(item) && !wasReviewedToday(item)).length;
+  const eligible = getEligibleReviewItems().length;
+  const deferred = Math.max(0, allDue - eligible);
+  const setText = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = String(value); };
+  setText("reviewDueCount", eligible);
+  setText("reviewTodayCount", `${reviewDailyState.reviewed}/${DAILY_REVIEW_LIMIT}`);
+  setText("reviewNewCount", `${reviewDailyState.newReviewed}/${DAILY_NEW_LIMIT}`);
+  const note = document.getElementById("reviewLimitNote");
+  if (note) note.textContent = deferred
+    ? `今天可复习 ${eligible} 项，另有 ${deferred} 项自动顺延。`
+    : "每天最多 10 个新词、20 个复习项，超出部分自动顺延。";
+  const button = document.getElementById("startReviewBtn");
+  if (button) {
+    button.disabled = eligible === 0;
+    button.textContent = eligible ? `开始今日复习（${eligible}）` : "今日复习已完成";
+  }
+}
+
+function startVocabularyReview() {
+  reviewQueue = getEligibleReviewItems();
+  reviewQueueIndex = 0;
+  renderReviewCard();
+}
+
+function renderReviewCard() {
+  const session = document.getElementById("reviewSession");
+  const card = document.getElementById("reviewCard");
+  const progress = document.getElementById("reviewProgress");
+  if (!session || !card || !progress) return;
+  session.hidden = false;
+  if (reviewQueueIndex >= reviewQueue.length) {
+    progress.textContent = "本轮复习完成";
+    card.innerHTML = `<div class="review-finished">做得很好。复习结果已用于调整后续视频的个性化高亮。</div>`;
+    updateReviewCenter();
+    return;
+  }
+
+  const item = reviewQueue[reviewQueueIndex];
+  const context = item.sources?.[0]?.context || "暂无原视频例句";
+  progress.textContent = `${reviewQueueIndex + 1} / ${reviewQueue.length}`;
+  card.innerHTML = `<div class="review-prompt"><strong>${escapeHtml(item.term)}</strong><span>${escapeHtml(context)}</span></div><button class="review-reveal" type="button">显示答案</button><div class="review-answer" hidden><p>${escapeHtml(item.note || "还没有释义笔记，请先回忆它在原句中的含义。")}</p><div class="review-ratings"><button data-rating="forgot">忘记了</button><button data-rating="fuzzy">有点模糊</button><button data-rating="remembered">想起来了</button><button data-rating="mastered">已经熟练</button></div></div>`;
+  card.querySelector(".review-reveal").addEventListener("click", (event) => {
+    event.currentTarget.hidden = true;
+    card.querySelector(".review-answer").hidden = false;
+  });
+  card.querySelectorAll("[data-rating]").forEach((button) => {
+    button.addEventListener("click", () => rateVocabularyReview(item, button.dataset.rating));
+  });
+}
+
+async function rateVocabularyReview(item, rating) {
+  const now = new Date();
+  const wasNew = (item.review?.repetitions || 0) === 0;
+  const schedules = {
+    forgot: { days: 0, status: "learning" },
+    fuzzy: { days: 1, status: "fuzzy" },
+    remembered: { days: Math.max(4, Math.min(14, Math.round((item.review?.intervalDays || 2) * 2.2))), status: "learning" },
+    mastered: { days: Math.max(14, Math.min(45, Math.round((item.review?.intervalDays || 7) * 2.5))), status: "known" },
+  };
+  const result = schedules[rating] || schedules.fuzzy;
+  const dueDelay = rating === "forgot" ? 6 * 60 * 60 * 1000 : result.days * 86400000;
+  item.status = result.status;
+  item.review = {
+    ...(item.review || createInitialReviewState(item)),
+    dueAt: new Date(now.getTime() + dueDelay).toISOString(),
+    intervalDays: result.days,
+    repetitions: (item.review?.repetitions || 0) + 1,
+    lapses: (item.review?.lapses || 0) + (rating === "forgot" ? 1 : 0),
+    lastReviewedAt: now.toISOString(),
+    lastRating: rating,
+  };
+  await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+  reviewDailyState = normalizeReviewDailyState(reviewDailyState);
+  reviewDailyState.reviewed += 1;
+  if (wasNew) reviewDailyState.newReviewed += 1;
+  await chrome.storage.local.set({ [REVIEW_DAILY_STORAGE_KEY]: reviewDailyState });
+  await syncReviewResultToLearningProfile(item);
+  reviewQueueIndex += 1;
+  renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
+  renderReviewCard();
+}
+
+async function syncReviewResultToLearningProfile(item) {
+  await loadLearningProfile();
+  const term = normalizeVocabularyTerm(item.term);
+  learningProfile.known = (learningProfile.known || []).filter((value) => value !== term);
+  learningProfile.fuzzy = (learningProfile.fuzzy || []).filter((value) => value !== term);
+  if (item.status === "known") learningProfile.known.push(term);
+  if (item.status === "fuzzy") learningProfile.fuzzy.push(term);
+  await chrome.storage.local.set({
+    [LEARNING_PROFILE_STORAGE_KEY]: {
+      known: [...new Set(learningProfile.known)],
+      fuzzy: [...new Set(learningProfile.fuzzy)],
+    },
+  });
 }
 
 function renderVocabulary(query = "") {
@@ -1478,7 +1723,8 @@ function renderVocabulary(query = "") {
   items.forEach((item) => {
     const row = document.createElement("article");
     row.className = "vocabulary-item";
-    row.innerHTML = `<div class="vocabulary-item-head"><strong>${escapeHtml(item.term)}</strong><button class="note-delete" title="Delete word">✕</button></div><textarea placeholder="Meaning or personal note">${escapeHtml(item.note || "")}</textarea><div class="vocabulary-meta">Seen ${item.lookupCount || 1} time${item.lookupCount === 1 ? "" : "s"} · ${item.sources?.length || 0} source${item.sources?.length === 1 ? "" : "s"}</div>${item.sources?.[0]?.context ? `<p class="vocabulary-context">${escapeHtml(item.sources[0].context)}</p>` : ""}`;
+    const dueLabel = isVocabularyDue(item) ? "今日复习" : `下次 ${new Date(item.review.dueAt).toLocaleDateString()}`;
+    row.innerHTML = `<div class="vocabulary-item-head"><strong>${escapeHtml(item.term)}</strong><button class="note-delete" title="Delete word">✕</button></div><textarea placeholder="Meaning or personal note">${escapeHtml(item.note || "")}</textarea><div class="vocabulary-meta">Seen ${item.lookupCount || 1} time${item.lookupCount === 1 ? "" : "s"} · ${item.sources?.length || 0} source${item.sources?.length === 1 ? "" : "s"} · ${escapeHtml(dueLabel)}</div>${item.sources?.[0]?.context ? `<p class="vocabulary-context">${escapeHtml(item.sources[0].context)}</p>` : ""}`;
     row.querySelector("textarea").addEventListener("change", async (event) => { item.note = event.target.value.trim(); await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary }); });
     row.querySelector(".note-delete").addEventListener("click", () => removeVocabularyTerm(item.id));
     list.appendChild(row);
@@ -1524,6 +1770,133 @@ function applyVocabularyHighlights() {
   });
 }
 
+async function loadLearningProfile() {
+  const result = await chrome.storage.local.get([
+    LEARNING_PROFILE_STORAGE_KEY,
+    VOCABULARY_STORAGE_KEY,
+  ]);
+  const stored = result[LEARNING_PROFILE_STORAGE_KEY] || {};
+  const legacyIgnored = Array.isArray(stored.ignored) ? stored.ignored : [];
+  const fuzzy = Array.isArray(stored.fuzzy) ? stored.fuzzy : legacyIgnored;
+  learningProfile = {
+    known: Array.isArray(stored.known) ? stored.known : [],
+    fuzzy: [...new Set(fuzzy.map(normalizeVocabularyTerm).filter(Boolean))],
+    learning: [...new Set(
+      (Array.isArray(result[VOCABULARY_STORAGE_KEY])
+        ? result[VOCABULARY_STORAGE_KEY]
+        : [])
+        .map((item) => normalizeVocabularyTerm(item.term))
+        .filter(Boolean),
+    )],
+  };
+}
+
+function learningProfileFingerprint(profile) {
+  const values = [
+    ...(profile.known || []).map((item) => `k:${item}`),
+    ...(profile.fuzzy || []).map((item) => `f:${item}`),
+    ...(profile.learning || []).map((item) => `l:${item}`),
+  ].sort();
+  let hash = 2166136261;
+  for (const char of values.join("|")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+async function runSmartReading({ automatic = false } = {}) {
+  if (!currentTranscriptText || !currentVideoId || isLearningAnalysisLoading) return;
+  const button = document.getElementById("smartReadingBtn");
+  const intensity = document.getElementById("learningIntensity")?.value || "balanced";
+  isLearningAnalysisLoading = true;
+  button.disabled = true;
+  button.textContent = automatic ? "自动分析中…" : "分析中…";
+  try {
+    await loadLearningProfile();
+    const profileVersion = learningProfileFingerprint(learningProfile);
+    const cacheKey = `learning_v4_${currentVideoId}_${intensity}_${profileVersion}`;
+    const cached = await chrome.storage.local.get(cacheKey);
+    if (Array.isArray(cached[cacheKey]?.items)) {
+      learningItems = cached[cacheKey].items;
+      learningGuide = cached[cacheKey].guide || {};
+    } else {
+      const result = await chrome.runtime.sendMessage({ action: "analyzeLearningItems", transcriptText: currentTranscriptText, videoTitle: currentVideoTitle, intensity, profile: learningProfile });
+      if (!result?.success) throw new Error(result?.error || "智能精读分析失败");
+      learningItems = result.items || [];
+      learningGuide = result.guide || {};
+      await chrome.storage.local.set({ [cacheKey]: { items: learningItems, guide: learningGuide, createdAt: new Date().toISOString() } });
+    }
+    applyLearningHighlights();
+    await updateCache();
+    button.textContent = `已高亮 ${learningItems.length} 项`;
+  } catch (error) {
+    button.textContent = "重试智能精读";
+    if (!automatic) alert(error.message);
+  } finally {
+    isLearningAnalysisLoading = false;
+    button.disabled = false;
+  }
+}
+
+function applyLearningHighlights() {
+  const root = document.getElementById("transcriptList");
+  if (!root) return;
+  root.querySelectorAll("mark.learning-highlight").forEach((mark) => mark.replaceWith(document.createTextNode(mark.textContent)));
+  const items = learningItems.filter((item) => item.term).sort((a, b) => b.term.length - a.term.length);
+  if (!items.length) return;
+  const lookup = new Map(items.map((item) => [item.term.toLocaleLowerCase(), item]));
+  const terms = items.map((item) => item.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${terms.join("|")})(?=$|[^\\p{L}\\p{N}])`, "giu");
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) if (!walker.currentNode.parentElement.closest(".transcript-time,.transcript-translation,button,mark")) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const text = node.nodeValue; pattern.lastIndex = 0;
+    if (!pattern.test(text)) return; pattern.lastIndex = 0;
+    const fragment = document.createDocumentFragment(); let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index + match[1].length;
+      fragment.append(document.createTextNode(text.slice(last, start)));
+      const item = lookup.get(match[2].toLocaleLowerCase());
+      const mark = document.createElement("mark");
+      mark.className = `learning-highlight learning-${item?.type || "phrase"}`;
+      mark.textContent = match[2];
+      mark.title = `${item?.meaningZh || ""}\n${item?.reasonZh || ""}`.trim();
+      mark.addEventListener("click", (event) => { event.stopPropagation(); openLearningCard(item, mark); });
+      fragment.append(mark); last = start + match[2].length;
+    }
+    fragment.append(document.createTextNode(text.slice(last))); node.replaceWith(fragment);
+  });
+}
+
+function openLearningCard(item, anchor) {
+  document.getElementById("learningCard")?.remove();
+  const card = document.createElement("div");
+  card.id = "learningCard"; card.className = "learning-card";
+  card.innerHTML = `<button class="learning-card-close">✕</button><strong>${escapeHtml(item.term)}</strong><span class="learning-level">${escapeHtml(item.level)}</span><p>${escapeHtml(item.meaningZh)}</p><p class="learning-reason">${escapeHtml(item.reasonZh)}</p>${item.example ? `<p><em>${escapeHtml(item.example)}</em></p>` : ""}<div><button data-action="save">加入生词本</button><button data-action="known">已掌握</button><button data-action="fuzzy">模糊</button></div>`;
+  document.body.appendChild(card);
+  const rect = anchor.getBoundingClientRect(); card.style.top = `${Math.min(window.innerHeight - card.offsetHeight - 12, rect.bottom + 8)}px`;
+  card.querySelector(".learning-card-close").onclick = () => card.remove();
+  card.querySelector('[data-action="save"]').onclick = async () => { await saveVocabularyTerm(item.term, item.example || item.reasonZh); card.remove(); };
+  ["known", "fuzzy"].forEach((action) => card.querySelector(`[data-action="${action}"]`).onclick = async () => {
+    await loadLearningProfile();
+    const key = action === "known" ? "known" : "fuzzy";
+    if (!learningProfile[key].includes(item.term.toLocaleLowerCase())) learningProfile[key].push(item.term.toLocaleLowerCase());
+    const opposite = action === "known" ? "fuzzy" : "known";
+    learningProfile[opposite] = learningProfile[opposite].filter(
+      (term) => term !== item.term.toLocaleLowerCase(),
+    );
+    await chrome.storage.local.set({
+      [LEARNING_PROFILE_STORAGE_KEY]: {
+        known: learningProfile.known,
+        fuzzy: learningProfile.fuzzy,
+      },
+    });
+    learningItems = learningItems.filter((entry) => entry.term !== item.term); card.remove(); applyLearningHighlights();
+  });
+}
+
 function exportVocabularyCsv() {
   const quote = (value) => `"${String(value || "").replace(/"/g, '""')}"`;
   const rows = [["term", "note", "status", "lookup_count", "source_video", "source_context"], ...savedVocabulary.map((item) => [item.term, item.note, item.status, item.lookupCount, item.sources?.[0]?.videoTitle, item.sources?.[0]?.context])];
@@ -1561,6 +1934,7 @@ async function saveToCache(videoId) {
       videoTitle: currentVideoTitle,
       channelName: currentChannelName,
       paragraphCache: paragraphCacheForVideo,
+      compactSegments: getActiveTranscriptSegments().map(({ id, start, text }) => ({ id, start, text })),
       timestamp: Date.now(),
     };
 
@@ -1809,11 +2183,10 @@ function startPlaybackTracking() {
 
   // Poll video time every 500ms
   autoScrollInterval = setInterval(() => playbackTrackingTick(), 500);
-
-  // Listen for manual scrolls on the content area
-  const contentArea = document.getElementById("contentArea");
-  contentArea.removeEventListener("scroll", onContentAreaScroll);
-  contentArea.addEventListener("scroll", onContentAreaScroll);
+  // Establish the current row immediately instead of waiting for the first
+  // interval. Transcript mode is intentionally strict-follow: it always keeps
+  // the spoken row visible, so the learner never has to swipe the panel.
+  playbackTrackingTick();
 }
 
 /**
@@ -1924,15 +2297,8 @@ function highlightActiveEntry(currentSeconds) {
  * can read at their own pace without being yanked back.
  */
 function onContentAreaScroll() {
-  // Ignore scroll events within 1 second of a programmatic scroll
-  // (smooth scroll animations can last longer than a simple boolean flag)
-  if (Date.now() - lastAutoScrollTime < 1000) return;
-
-  // User scrolled manually — disable auto-scroll and show the button
-  if (autoScrollEnabled && autoScrollInterval) {
-    autoScrollEnabled = false;
-    document.getElementById("followPlaybackBtn").style.display = "block";
-  }
+  // Kept as a no-op for compatibility with older loaded panel instances.
+  // Current transcript mode always follows playback automatically.
 }
 
 // ============================================================
@@ -1976,10 +2342,12 @@ async function handleTranscriptModeChange(mode) {
 
   if (mode === "original") {
     renderTranscript();
+    playbackTrackingTick();
     return;
   }
 
   await translateTranscript();
+  playbackTrackingTick();
 }
 
 function renderTranscriptSegmentContent(segment, mode, translated, error) {
@@ -2045,6 +2413,7 @@ function renderTranscriptModeRows(segments, mode) {
 
   startPlaybackTracking();
   applyVocabularyHighlights();
+  applyLearningHighlights();
   return rows;
 }
 
@@ -2099,6 +2468,7 @@ function updateTranslatedRow(segment, index, alignedItem, generation) {
   row.classList.toggle("translating", false);
   row.classList.toggle("translation-failed", !alignedItem.text);
   applyVocabularyHighlights();
+  applyLearningHighlights();
 
   const retry = row.querySelector(".translation-retry-btn");
   if (retry) {
