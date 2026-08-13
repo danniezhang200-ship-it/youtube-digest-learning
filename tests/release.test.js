@@ -47,7 +47,7 @@ test("release copy documents current scope without em dashes", () => {
   assert.match(readme, /^## Install with your coding agent$/m);
   assert.match(
     readme,
-    /permanent folder I choose[\s\S]*tell me its exact full path[\s\S]*If I need a suggestion during this first installation[\s\S]*`~\/Documents\/youtube-digest`[\s\S]*`%USERPROFILE%\\Documents\\youtube-digest`[\s\S]*do not assume either path/,
+    /permanent folder I choose[\s\S]*tell me its exact full path[\s\S]*If I need a suggestion during this first installation[\s\S]*`~\/Documents\/youtube-digest-learning`[\s\S]*`%USERPROFILE%\\Documents\\youtube-digest-learning`[\s\S]*do not assume either path/,
   );
   assert.match(
     readme,
@@ -68,7 +68,7 @@ test("release copy documents current scope without em dashes", () => {
   assert.match(chineseReadme, /^## 让你的编程 Agent 帮你安装$/m);
   assert.match(
     chineseReadme,
-    /我选择的长期保留文件夹[\s\S]*告诉我准确的完整路径[\s\S]*第一次安装时需要位置建议[\s\S]*`~\/Documents\/youtube-digest`[\s\S]*`%USERPROFILE%\\Documents\\youtube-digest`[\s\S]*不要假设我一定使用这些路径/,
+    /我选择的长期保留文件夹[\s\S]*告诉我准确的完整路径[\s\S]*第一次安装时需要位置建议[\s\S]*`~\/Documents\/youtube-digest-learning`[\s\S]*`%USERPROFILE%\\Documents\\youtube-digest-learning`[\s\S]*不要假设我一定使用这些路径/,
   );
   assert.match(
     chineseReadme,

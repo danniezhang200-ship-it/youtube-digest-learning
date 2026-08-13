@@ -1,6 +1,6 @@
 # YouTube Digest Learning
 
-> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. This edition adds a local vocabulary notebook, cross-video vocabulary highlighting, and printable original, Chinese, and bilingual transcript exports.
+> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. Version 1.4.1 builds a complete watch, understand, shadow, collect, review, and deep-reading workflow around real YouTube videos.
 
 This project preserves the upstream MIT License and copyright notice. It is an independent derivative project and is not an official release of the original author.
 
@@ -10,11 +10,26 @@ Turn every YouTube video into a resource for deep learning. YouTube Digest Learn
 
 ## Added in this learning edition
 
-- Save selected words and phrases to a local vocabulary list and highlight them across videos.
-- Keep personal meanings, source context, and lookup counts for saved vocabulary.
+- Automatically select and highlight level-appropriate vocabulary, collocations, natural expressions, and memorable sentences using the learner's learning, fuzzy, and mastered history.
+- Show compact in-player subtitles in highlighted English, Chinese, or highlighted bilingual mode, synchronized with playback.
+- Loop the current sentence for shadowing, move between sentences, and choose a 0.8, 1.5, or 2.5 second speaking gap.
+- Save selected words and phrases locally and highlight them when they reappear in other videos.
+- Keep personal meanings, original video context, sources, and encounter counts.
+- Review locally with four recall ratings and spaced scheduling.
+- Limit each day to 10 new items and 20 reviews; overflow is deferred without being lost.
 - Export the vocabulary notebook as CSV.
 - Export original, Simplified Chinese, or bilingual transcripts as printable HTML, Markdown, or plain text.
-- Choose whether to include timestamps and append vocabulary from the current video.
+- Generate a printable intensive-reading PDF with bilingual transcript, UK and US IPA, personalized vocabulary, natural phrases, key sentences, ideas, questions, and speaking practice.
+- Reuse cached transcript, translation, and intensive-reading results when reopening the same video to reduce duplicate API requests.
+
+## Version 1.4.1
+
+- Completed synchronized in-player subtitles in three display modes.
+- Added sentence-loop shadowing with adjustable speaking gaps.
+- Added personalized smart reading and intensive-reading PDF export.
+- Added an adaptive vocabulary profile, cross-video highlighting, and a local vocabulary notebook.
+- Added spaced review with daily limits of 10 new items and 20 reviews.
+- Fixed translation JSON handling and YouTube dynamic-layout integration issues.
 
 ## Features inherited from the upstream project
 
@@ -31,7 +46,7 @@ YouTube Digest is a bring-your-own-key project installed locally from GitHub. It
 
 You do not need to understand the code or use the command line. Send this message to your coding agent:
 
-> Download or clone this project into a permanent folder I choose, tell me its exact full path, and use that same folder for Chrome's Load unpacked step. If I need a suggestion during this first installation, offer `~/Documents/youtube-digest` on macOS or Linux, or `%USERPROFILE%\Documents\youtube-digest` on Windows, but do not assume either path. Walk me through installation and setup in simple terms. https://github.com/zarazhangrui/youtube-digest
+> Download or clone this project into a permanent folder I choose, tell me its exact full path, and use that same folder for Chrome's Load unpacked step. If I need a suggestion during this first installation, offer `~/Documents/youtube-digest-learning` on macOS or Linux, or `%USERPROFILE%\Documents\youtube-digest-learning` on Windows, but do not assume either path. Walk me through installation and setup in simple terms. https://github.com/danniezhang200-ship-it/youtube-digest-learning
 
 Your agent should:
 
@@ -49,7 +64,7 @@ Never paste an API key into an AI chat, source file, screenshot, or public messa
 
 If you prefer to do it yourself:
 
-1. Open [github.com/zarazhangrui/youtube-digest](https://github.com/zarazhangrui/youtube-digest).
+1. Open [github.com/danniezhang200-ship-it/youtube-digest-learning](https://github.com/danniezhang200-ship-it/youtube-digest-learning).
 2. Choose **Code**, then **Download ZIP**.
 3. Choose a permanent folder and unzip the project there. Optional suggestions are `~/Documents/youtube-digest` on macOS or Linux, or `%USERPROFILE%\Documents\youtube-digest` on Windows. You may use a different folder.
 4. In Chrome, open `chrome://extensions`.
@@ -110,12 +125,25 @@ Keys and settings are stored in Chrome's local extension storage on your device.
 5. Select transcript text when you want an AI explanation.
 6. Save a note from the player or a key quote, then revisit it from **Notes**.
 
+### Recommended learning workflow
+
+1. Start with highlighted English subtitles and focus on understanding without pausing too often.
+2. Open a highlight when an item is genuinely worth learning, then confirm it into the vocabulary notebook.
+3. Use sentence shadowing for important lines and imitate pronunciation, stress, pauses, and tone during the speaking gap.
+4. Complete up to 10 new items and 20 reviews in **Words**; recall results keep tuning future highlights.
+5. Generate an intensive-reading PDF for videos worth printing, retelling, and studying deeply.
+
 ## What works today
 
 - Google Chrome 116 or newer, using the Side Panel API.
 - Standard `youtube.com/watch` video pages.
 - Native subtitle tracks returned by Supadata. YouTube Digest prefers English when available, but may show another native language.
 - Original, Simplified Chinese, and aligned bilingual transcript views.
+- Compact synchronized in-player English, Chinese, and bilingual subtitles.
+- Sentence-loop shadowing, previous/next sentence controls, and adjustable speaking gaps.
+- Personalized vocabulary and expression highlighting with an adaptive learning profile.
+- A local vocabulary notebook, spaced review, and daily learning limits.
+- Printable intensive-reading PDF export.
 - AI overviews, selected-text explanations, translation, and automatic note polishing.
 - Local notes and a local cache for recent transcript and digest results.
 - DeepSeek V4 Flash for all published AI features. Other providers require a local code adaptation and are not supported by this published version.

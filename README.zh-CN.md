@@ -1,6 +1,6 @@
 # YouTube Digest Learning
 
-> 这是一个面向英语学习的社区二创版本，基于 Zara Zhang 开发的 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。本版本新增本地生词本、跨视频词汇高亮，以及原文、中文和双语逐字稿打印与导出功能。
+> 这是一个面向英语学习的社区二创版本，基于 Zara Zhang 开发的 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。当前 1.4.1 版本围绕真实 YouTube 视频建立了“观看、理解、跟读、积累、复习、精读导出”的完整学习流程。
 
 本项目保留上游项目的 MIT License 与版权声明，属于独立的衍生项目，并非原作者发布的官方版本。
 
@@ -10,11 +10,26 @@
 
 ## 本学习版新增
 
-- 把选中的单词和短语保存到本地生词本，并在不同视频中自动高亮。
-- 为生词保存个人释义、来源语境和查询次数。
+- 根据学习者的“学习中、模糊、已掌握”记录，自动挑选并高亮接近个人水平的单词、搭配、地道表达和金句。
+- 在视频画面内显示紧凑字幕，可随时切换英文高亮、中文或双语高亮，并自动跟随播放进度。
+- 支持当前句循环跟读、上一句、下一句，以及 0.8、1.5、2.5 秒跟读留白。
+- 把选中的单词和短语保存到本地生词本，并在不同视频中再次出现时自动高亮。
+- 为生词保存个人释义、原视频语境、来源和遇见次数。
+- 提供本地智能复习中心，通过“忘记了、有点模糊、想起来了、已经熟练”安排间隔复习。
+- 每天最多安排 10 个新词和 20 个复习项，超出的内容自动顺延，不会丢失。
 - 将生词本导出为 CSV。
 - 将原文、简体中文或双语逐字稿导出为可打印 HTML、Markdown 或纯文本。
-- 导出时可选择是否保留时间戳，以及是否附上当前视频的生词表。
+- 生成适合打印的英语精读 PDF，包含双语逐字稿、英美音标、个性化词汇、地道短语、重点句、观点整理、思考题和口语复述练习。
+- 缓存同一视频的字幕、翻译和精读分析，重新打开时尽量复用已有结果，减少重复 API 请求。
+
+## 1.4.1 版本说明
+
+- 完成视频画面内的三种字幕模式和自动播放跟随。
+- 新增句子循环跟读与可调节留白时间。
+- 新增个性化智能精读和英语精读 PDF。
+- 新增自适应词汇画像、跨视频高亮与本地生词本。
+- 新增间隔重复复习中心，并加入每日 10 个新词、20 个复习项的学习上限。
+- 修复字幕翻译 JSON、YouTube 页面动态布局和视频下方学习区相关问题。
 
 ## 继承自上游原版的功能
 
@@ -31,7 +46,7 @@ YouTube Digest 是一个需要自行提供 API Key 的开源项目，通过 GitH
 
 你不需要看懂代码，也不需要会使用命令行。把下面这段话发送给你的编程 Agent：
 
-> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome“加载已解压的扩展程序”使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/youtube-digest`，或 Windows 上的 `%USERPROFILE%\Documents\youtube-digest`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/zarazhangrui/youtube-digest
+> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome“加载已解压的扩展程序”使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/youtube-digest-learning`，或 Windows 上的 `%USERPROFILE%\Documents\youtube-digest-learning`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/danniezhang200-ship-it/youtube-digest-learning
 
 你的 Agent 应该帮你：
 
@@ -49,7 +64,7 @@ YouTube Digest 是一个需要自行提供 API Key 的开源项目，通过 GitH
 
 如果你想自己操作：
 
-1. 打开 [github.com/zarazhangrui/youtube-digest](https://github.com/zarazhangrui/youtube-digest)。
+1. 打开 [github.com/danniezhang200-ship-it/youtube-digest-learning](https://github.com/danniezhang200-ship-it/youtube-digest-learning)。
 2. 点击 **Code**，再选择 **Download ZIP**。
 3. 选择一个长期保留的文件夹，并把项目解压到这里。可选建议是 macOS 或 Linux 上的 `~/Documents/youtube-digest`，或 Windows 上的 `%USERPROFILE%\Documents\youtube-digest`。你也可以使用其他文件夹。
 4. 在 Chrome 地址栏打开 `chrome://extensions`。
@@ -110,12 +125,25 @@ API Key 和设置保存在你设备上的 Chrome 扩展本地存储中。发布�
 5. 选中字幕，获取 AI 内容讲解。
 6. 从播放器或重点引用中保存笔记，之后可以在 **Notes** 中查看。
 
+### 推荐的英语学习流程
+
+1. 第一遍观看时使用英文高亮字幕，先理解内容，不要频繁暂停。
+2. 遇到真正想掌握的词或表达时点击高亮解释，确认后加入生词本。
+3. 对重要句子开启“跟读”，利用句尾留白模仿发音、重音、停顿和语气。
+4. 在 **Words** 中完成当天最多 10 个新词和 20 项复习，复习结果会继续调整以后的视频高亮。
+5. 对高质量视频生成英语精读 PDF，用于打印、复述和深度学习。
+
 ## 当前支持范围
 
 - Chrome 116 或更高版本。
 - 标准的 `youtube.com/watch` 视频页面。
 - Supadata 能够返回的原生字幕。YouTube Digest 会优先请求英文字幕，也可能显示其他可用的原生语言。
 - 原文、简体中文和双语对照字幕。
+- 视频画面内英文、中文和双语紧凑字幕，以及自动播放跟随。
+- 句子循环跟读、上下句切换和跟读留白。
+- 个性化词汇与表达高亮、自适应学习画像和跨视频重复提示。
+- 本地生词本、间隔重复复习和每日学习上限。
+- 可打印的英语精读 PDF。
 - AI 概览、选中文本讲解、翻译和自动润色笔记。
 - 本地笔记，以及最近字幕、概览和翻译的本地缓存。
 - 发布版本的所有 AI 功能都使用 DeepSeek V4 Flash。其他服务需要修改本地代码，不属于发布版本的支持范围。
