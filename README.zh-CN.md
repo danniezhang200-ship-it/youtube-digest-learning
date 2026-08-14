@@ -1,6 +1,6 @@
 # YouTube Digest Learning
 
-> 这是一个面向英语学习的社区二创版本，基于 Zara Zhang 开发的 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。当前 1.4.1 版本围绕真实 YouTube 视频建立了“观看、理解、跟读、积累、复习、精读导出”的完整学习流程。
+> 这是一个面向英语学习的社区二创版本，基于 Zara Zhang 开发的 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。当前 1.4.2 版本围绕真实 YouTube 视频建立了“观看、理解、跟读、积累、复习、精读导出”的完整学习流程。
 
 本项目保留上游项目的 MIT License 与版权声明，属于独立的衍生项目，并非原作者发布的官方版本。
 
