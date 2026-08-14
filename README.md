@@ -1,6 +1,6 @@
 # YouTube Digest Learning
 
-> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. Version 1.4.1 builds a complete watch, understand, shadow, collect, review, and deep-reading workflow around real YouTube videos.
+> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. Version 1.4.2 builds a complete watch, understand, shadow, collect, review, and deep-reading workflow around real YouTube videos.
 
 This project preserves the upstream MIT License and copyright notice. It is an independent derivative project and is not an official release of the original author.
 
