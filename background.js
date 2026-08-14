@@ -1122,7 +1122,9 @@ function validateAndFixTimestamps(analysis, maxSeconds) {
       if (seconds === null || !title) return null;
       return {
         title,
+        titleZh: safeString(chapter?.titleZh, 300),
         summary: safeString(chapter?.summary, 1500),
+        summaryZh: safeString(chapter?.summaryZh, 1500),
         timestampSeconds: seconds,
         timestamp: formatTimestamp(seconds),
       };
@@ -1140,6 +1142,7 @@ function validateAndFixTimestamps(analysis, maxSeconds) {
       if (seconds === null || !text) return null;
       return {
         quote: text,
+        quoteZh: safeString(quote?.quoteZh, 3000),
         timestampSeconds: seconds,
         timestamp: formatTimestamp(seconds),
       };
@@ -1154,7 +1157,13 @@ function validateAndFixTimestamps(analysis, maxSeconds) {
     .filter((seconds) => seconds !== null)
     .slice(0, 100);
 
-  return { chapters, keyQuotes, keyMoments };
+  return {
+    quickSummary: safeString(analysis?.quickSummary, 3000),
+    quickSummaryZh: safeString(analysis?.quickSummaryZh, 3000),
+    chapters,
+    keyQuotes,
+    keyMoments,
+  };
 }
 
 // ============================================================

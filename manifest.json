@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Digest Learning",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "minimum_chrome_version": "116",
   "description": "Learn from YouTube with bilingual transcripts, vocabulary highlighting, printable exports, AI overviews, and notes.",
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],

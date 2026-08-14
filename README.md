@@ -21,9 +21,12 @@ Turn every YouTube video into a resource for deep learning. YouTube Digest Learn
 - Export original, Simplified Chinese, or bilingual transcripts as printable HTML, Markdown, or plain text.
 - Generate a printable intensive-reading PDF with bilingual transcript, UK and US IPA, personalized vocabulary, natural phrases, key sentences, ideas, questions, and speaking practice.
 - Reuse cached transcript, translation, and intensive-reading results when reopening the same video to reduce duplicate API requests.
+- Preview a video through an AI overview in English, Simplified Chinese, or an aligned bilingual view without paying for another request when switching languages.
 
-## Version 1.4.1
+## Version 1.4.2
 
+- Added a quick pre-viewing summary and English, Simplified Chinese, and bilingual Overview modes.
+- Generate both Overview languages together and cache them locally, so language switching does not trigger another DeepSeek request.
 - Completed synchronized in-player subtitles in three display modes.
 - Added sentence-loop shadowing with adjustable speaking gaps.
 - Added personalized smart reading and intensive-reading PDF export.
@@ -121,7 +124,7 @@ Keys and settings are stored in Chrome's local extension storage on your device.
 1. Open a standard YouTube watch page with captions.
 2. Click the YouTube Digest extension icon to open the side panel.
 3. Read the timestamped transcript, or choose **Original**, **中文**, or **双语**.
-4. Open **Overview** when you want AI-generated chapters and key quotes.
+4. Open **Overview** for a quick summary, chapters, and key quotes, then choose **English**, **中文**, or **双语**.
 5. Select transcript text when you want an AI explanation.
 6. Save a note from the player or a key quote, then revisit it from **Notes**.
 

@@ -132,9 +132,22 @@
 
         <!-- TAB: Overview (chapters + key quotes) - requires LLM -->
         <div class="tab-panel" data-panel="overview">
+          <div class="overview-toolbar" aria-label="Overview language">
+            <button class="overview-mode-btn" data-overview-mode="en">English</button>
+            <button class="overview-mode-btn active" data-overview-mode="zh">中文</button>
+            <button class="overview-mode-btn" data-overview-mode="bilingual">双语</button>
+          </div>
+
+          <div class="section overview-quick-section">
+            <div class="section-title" id="overviewQuickTitle">快速了解</div>
+            <div class="overview-quick-card" id="overviewQuickCard">
+              打开 Overview 后，将在这里快速了解视频内容。
+            </div>
+          </div>
+
           <!-- Chapters -->
           <div class="section">
-            <div class="section-title">Chapters</div>
+            <div class="section-title" id="overviewChaptersTitle">章节</div>
             <ul class="chapter-list" id="chapterList">
               <li
                 class="chapter-item"
@@ -151,7 +164,7 @@
 
           <!-- Key Quotes -->
           <div class="section">
-            <div class="section-title">Key Quotes</div>
+            <div class="section-title" id="overviewQuotesTitle">重点引用</div>
             <div id="quotesList">
               <div
                 class="quote-item"

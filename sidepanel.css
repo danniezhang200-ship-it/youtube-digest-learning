@@ -444,6 +444,60 @@ body {
 /* ============================================================
    CHAPTERS
    ============================================================ */
+.overview-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 12px 18px 0;
+}
+
+.overview-mode-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: 600 11.5px var(--font-body);
+  cursor: pointer;
+}
+
+.overview-mode-btn:hover,
+.overview-mode-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.overview-mode-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.overview-quick-section {
+  padding-bottom: 4px;
+}
+
+.overview-quick-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: 13.5px/1.7 var(--font-reading);
+  white-space: pre-line;
+}
+
+.overview-bilingual-primary {
+  display: block;
+}
+
+.overview-bilingual-translation {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+}
+
 .chapter-list {
   list-style: none;
 }

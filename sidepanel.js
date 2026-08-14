@@ -26,6 +26,8 @@ let currentChannelName = "";
 let currentVideoDescription = "";
 let currentVideoDuration = 0;
 let isAnalysisLoading = false; // Track if analysis is in progress
+let currentOverviewMode = "zh";
+const OVERVIEW_MODE_STORAGE_KEY = "ytd_overview_mode";
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 
@@ -244,6 +246,15 @@ function groupTranscriptEntries(entries, limits = TRANSCRIPT_SEGMENT_LIMITS) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setupEventListeners();
+  const overviewPreference = await chrome.storage.local.get(
+    OVERVIEW_MODE_STORAGE_KEY,
+  );
+  currentOverviewMode = ["en", "zh", "bilingual"].includes(
+    overviewPreference[OVERVIEW_MODE_STORAGE_KEY],
+  )
+    ? overviewPreference[OVERVIEW_MODE_STORAGE_KEY]
+    : "zh";
+  updateOverviewModeButtons();
   await loadVocabulary();
   await evictOldCacheEntries(20);
 
@@ -407,6 +418,16 @@ function setupEventListeners() {
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
+    });
+  });
+  document.querySelectorAll(".overview-mode-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      currentOverviewMode = button.dataset.overviewMode;
+      updateOverviewModeButtons();
+      await chrome.storage.local.set({
+        [OVERVIEW_MODE_STORAGE_KEY]: currentOverviewMode,
+      });
+      if (currentAnalysis) renderAnalysisResults(currentAnalysis);
     });
   });
 
@@ -692,6 +713,33 @@ async function startDigest(videoId, videoUrl) {
  * Shows chapters and key quotes only.
  */
 function renderAnalysisResults(analysis) {
+  const mode = currentOverviewMode;
+  const isChinese = mode === "zh";
+  const isBilingual = mode === "bilingual";
+  const pickText = (english, chinese) =>
+    isChinese ? chinese || english || "" : english || chinese || "";
+  const bilingualText = (english, chinese, className = "") => {
+    if (!isBilingual) return escapeHtml(pickText(english, chinese));
+    return `<span class="overview-bilingual-primary ${className}">${escapeHtml(english || chinese || "")}</span><span class="overview-bilingual-translation">${escapeHtml(chinese || english || "")}</span>`;
+  };
+
+  document.getElementById("overviewQuickTitle").textContent =
+    mode === "en" ? "Quick Overview" : mode === "zh" ? "快速了解" : "Quick Overview · 快速了解";
+  document.getElementById("overviewChaptersTitle").textContent =
+    mode === "en" ? "Chapters" : mode === "zh" ? "章节" : "Chapters · 章节";
+  document.getElementById("overviewQuotesTitle").textContent =
+    mode === "en" ? "Key Quotes" : mode === "zh" ? "重点引用" : "Key Quotes · 重点引用";
+
+  const quickCard = document.getElementById("overviewQuickCard");
+  if (quickCard) {
+    const fallbackSummary = analysis.chapters?.[0]?.summary || "";
+    const fallbackSummaryZh = analysis.chapters?.[0]?.summaryZh || "";
+    quickCard.innerHTML = bilingualText(
+      analysis.quickSummary || fallbackSummary,
+      analysis.quickSummaryZh || fallbackSummaryZh,
+    );
+  }
+
   // Chapters
   const chapterList = document.getElementById("chapterList");
   chapterList.innerHTML = "";
@@ -702,8 +750,8 @@ function renderAnalysisResults(analysis) {
     li.innerHTML = `
       <span class="chapter-timestamp">${escapeHtml(chapter.timestamp)}</span>
       <div class="chapter-content">
-        <span class="chapter-title">${escapeHtml(chapter.title)}</span>
-        <span class="chapter-summary">${escapeHtml(chapter.summary || "")}</span>
+        <span class="chapter-title">${bilingualText(chapter.title, chapter.titleZh)}</span>
+        <span class="chapter-summary">${bilingualText(chapter.summary, chapter.summaryZh)}</span>
       </div>
     `;
     li.addEventListener("click", () => {
@@ -728,7 +776,7 @@ function renderAnalysisResults(analysis) {
     div.className = "quote-item";
     div.dataset.seconds = quote.timestampSeconds;
     div.innerHTML = `
-      <div class="quote-text">${escapeHtml(quote.quote)}</div>
+      <div class="quote-text">${bilingualText(quote.quote, quote.quoteZh)}</div>
       <div class="quote-meta">
         <span class="quote-timestamp">${escapeHtml(quote.timestamp)}</span>
         <div class="quote-actions">
@@ -767,6 +815,25 @@ function renderAnalysisResults(analysis) {
     });
 
     quotesList.appendChild(div);
+  });
+}
+
+function hasBilingualOverview(analysis) {
+  if (!analysis?.quickSummary || !analysis?.quickSummaryZh) return false;
+  const chapters = Array.isArray(analysis.chapters) ? analysis.chapters : [];
+  const quotes = Array.isArray(analysis.keyQuotes) ? analysis.keyQuotes : [];
+  return (
+    chapters.length > 0 &&
+    chapters.every((chapter) => chapter.titleZh && chapter.summaryZh) &&
+    quotes.every((quote) => quote.quoteZh)
+  );
+}
+
+function updateOverviewModeButtons() {
+  document.querySelectorAll(".overview-mode-btn").forEach((button) => {
+    const active = button.dataset.overviewMode === currentOverviewMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
 }
 
@@ -1139,7 +1206,11 @@ function switchTab(tabName) {
   }
 
   // Lazy-load LLM analysis when user switches to Overview tab
-  if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading) {
+  if (
+    tabName === "overview" &&
+    !hasBilingualOverview(currentAnalysis) &&
+    !isAnalysisLoading
+  ) {
     triggerAnalysis();
   }
   if (tabName === "vocabulary") loadVocabulary();
@@ -1150,7 +1221,11 @@ function switchTab(tabName) {
  * This saves tokens by not running analysis until needed.
  */
 async function triggerAnalysis() {
-  if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
+  if (
+    !currentTranscriptTimestamped ||
+    isAnalysisLoading ||
+    hasBilingualOverview(currentAnalysis)
+  )
     return;
 
   isAnalysisLoading = true;

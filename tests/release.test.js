@@ -17,7 +17,7 @@ test("manifest uses minimized install-time permissions", () => {
   assert.ok(!manifest.permissions.includes("activeTab"));
   assert.ok(manifest.host_permissions.includes("https://api.deepseek.com/*"));
   assert.equal(Object.hasOwn(manifest, "optional_host_permissions"), false);
-  assert.equal(manifest.version, "1.4.1");
+  assert.equal(manifest.version, "1.4.2");
 });
 
 test("release copy documents current scope without em dashes", () => {
@@ -209,6 +209,27 @@ test("notes filters preserve selected contrast and expose pressed state", () => 
   assert.match(js, /setNotesFilter\(true\)/);
   assert.match(js, /setAttribute\("aria-pressed", String\(!showAll\)\)/);
   assert.match(js, /setAttribute\("aria-pressed", String\(showAll\)\)/);
+});
+
+test("Overview supports cached English, Chinese, and bilingual reading modes", () => {
+  const html = read("sidepanel.html");
+  const css = read("sidepanel.css");
+  const js = read("sidepanel.js");
+  const background = read("background.js");
+  const prompt = read("prompts/analysis.md");
+
+  assert.match(html, /data-overview-mode="en"[^>]*>English</);
+  assert.match(html, /data-overview-mode="zh"[^>]*>中文</);
+  assert.match(html, /data-overview-mode="bilingual"[^>]*>双语</);
+  assert.match(html, /id="overviewQuickCard"/);
+  assert.match(css, /\.overview-mode-btn\.active\s*\{/);
+  assert.match(js, /OVERVIEW_MODE_STORAGE_KEY = "ytd_overview_mode"/);
+  assert.match(js, /function hasBilingualOverview\(analysis\)/);
+  assert.match(background, /quickSummaryZh:/);
+  assert.match(background, /titleZh:/);
+  assert.match(background, /summaryZh:/);
+  assert.match(background, /quoteZh:/);
+  assert.match(prompt, /Generate both languages in this single response/);
 });
 
 test("runtime has no source-file credential dependency or retired model", () => {
