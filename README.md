@@ -1,6 +1,6 @@
 # YouTube Digest Learning
 
-> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. Version 1.4.2 builds a complete watch, understand, shadow, collect, review, and deep-reading workflow around real YouTube videos.
+> A learning-focused community edition based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) by Zara Zhang. Version 1.4.3 builds a complete watch, understand, shadow, collect, review, and deep-reading workflow around real YouTube videos.
 
 This project preserves the upstream MIT License and copyright notice. It is an independent derivative project and is not an official release of the original author.
 
@@ -14,7 +14,8 @@ Turn every YouTube video into a resource for deep learning. YouTube Digest Learn
 - Show compact in-player subtitles in highlighted English, Chinese, or highlighted bilingual mode, synchronized with playback.
 - Loop the current sentence for shadowing, move between sentences, and choose a 0.8, 1.5, or 2.5 second speaking gap.
 - Save selected words and phrases locally and highlight them when they reappear in other videos.
-- Keep personal meanings, original video context, sources, and encounter counts.
+- Show part of speech, UK and US IPA, and one-tap English pronunciation for words; keep phrases grounded in their original sentence without redundant IPA.
+- Lead with English definitions, keep Chinese support collapsed until requested, and retain personal notes, original context, sources, and encounter counts.
 - Review locally with four recall ratings and spaced scheduling.
 - Limit each day to 10 new items and 20 reviews; overflow is deferred without being lost.
 - Export the vocabulary notebook as CSV.
@@ -22,6 +23,14 @@ Turn every YouTube video into a resource for deep learning. YouTube Digest Learn
 - Generate a printable intensive-reading PDF with bilingual transcript, UK and US IPA, personalized vocabulary, natural phrases, key sentences, ideas, questions, and speaking practice.
 - Reuse cached transcript, translation, and intensive-reading results when reopening the same video to reduce duplicate API requests.
 - Preview a video through an AI overview in English, Simplified Chinese, or an aligned bilingual view without paying for another request when switching languages.
+
+## Version 1.4.3
+
+- Added part of speech, UK and US IPA, and one-tap English pronunciation to word cards in Words.
+- Added concise contextual English definitions to smart-highlighted words and phrases, with Chinese support collapsed by default.
+- Extended review cards with pronunciation, IPA, English definitions, original context, and optional Chinese help.
+- Extended vocabulary CSV export with part of speech, IPA, English definitions, and Chinese meanings.
+- Kept phrase learning focused on English definitions and original sentences without unnecessary phrase-level IPA.
 
 ## Version 1.4.2
 

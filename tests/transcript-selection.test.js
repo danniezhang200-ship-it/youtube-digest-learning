@@ -57,6 +57,11 @@ test("selected transcript text can be saved to local vocabulary", () => {
   assert.match(source, /save-word-btn/);
   assert.match(source, /saveVocabularyTerm\(selectedText/);
   assert.match(source, /applyVocabularyHighlights\(\)/);
+  assert.match(source, /function speakVocabularyTerm\(term\)/);
+  assert.match(source, /SpeechSynthesisUtterance/);
+  assert.match(source, /vocabularyPronunciationHtml/);
+  assert.match(source, /definitionEn/);
+  assert.match(source, /查看中文/);
 });
 
 test("transcript export supports bilingual printable output", () => {

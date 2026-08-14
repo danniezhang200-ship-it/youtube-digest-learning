@@ -1589,12 +1589,73 @@ function normalizeVocabularyTerm(term) {
   return String(term || "").trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, "").replace(/\s+/g, " ").toLowerCase();
 }
 
+function getVocabularyType(term) {
+  return /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(String(term || "").trim()) ? "word" : "phrase";
+}
+
+function getLearningMetadata(term) {
+  const normalized = normalizeVocabularyTerm(term);
+  const match = learningItems.find((item) => normalizeVocabularyTerm(item.term) === normalized);
+  if (!match) return { type: getVocabularyType(term) };
+  return {
+    type: match.type === "word" ? "word" : "phrase",
+    ipaUk: match.type === "word" ? match.ipaUk || "" : "",
+    ipaUs: match.type === "word" ? match.ipaUs || "" : "",
+    partOfSpeech: match.type === "word" ? match.partOfSpeech || "" : "",
+    definitionEn: match.definitionEn || "",
+    meaningZh: match.meaningZh || "",
+    example: match.example || "",
+    level: match.level || "",
+  };
+}
+
+async function syncLearningMetadataToVocabulary() {
+  let changed = false;
+  savedVocabulary.forEach((item) => {
+    const metadata = getLearningMetadata(item.term);
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (value && item[key] !== value) {
+        item[key] = value;
+        changed = true;
+      }
+    });
+  });
+  if (changed) {
+    await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
+    renderVocabulary(document.getElementById("vocabularySearch")?.value || "");
+  }
+}
+
+function speakVocabularyTerm(term) {
+  if (!term || !("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(term);
+  utterance.lang = "en-US";
+  utterance.rate = 0.82;
+  const voices = window.speechSynthesis.getVoices();
+  utterance.voice = voices.find((voice) => voice.lang === "en-US" && /Samantha|Ava|Google US English/i.test(voice.name))
+    || voices.find((voice) => voice.lang === "en-US")
+    || voices.find((voice) => voice.lang.startsWith("en"))
+    || null;
+  window.speechSynthesis.speak(utterance);
+}
+
+function vocabularyPronunciationHtml(item) {
+  if (item.type !== "word") return "";
+  const ipa = [item.ipaUs ? `US ${item.ipaUs}` : "", item.ipaUk ? `UK ${item.ipaUk}` : ""].filter(Boolean).join(" · ");
+  return `<div class="vocabulary-pronunciation">${item.partOfSpeech ? `<span>${escapeHtml(item.partOfSpeech)}</span>` : ""}${ipa ? `<span>${escapeHtml(ipa)}</span>` : ""}<button class="vocabulary-speak" type="button" title="Play pronunciation" aria-label="Play pronunciation">🔊</button></div>`;
+}
+
 async function loadVocabulary() {
   const result = await chrome.storage.local.get([VOCABULARY_STORAGE_KEY, REVIEW_DAILY_STORAGE_KEY]);
   savedVocabulary = Array.isArray(result[VOCABULARY_STORAGE_KEY]) ? result[VOCABULARY_STORAGE_KEY] : [];
   reviewDailyState = normalizeReviewDailyState(result[REVIEW_DAILY_STORAGE_KEY]);
   let migrated = false;
   savedVocabulary.forEach((item) => {
+    if (!item.type) {
+      item.type = getVocabularyType(item.term);
+      migrated = true;
+    }
     if (!item.review) {
       item.review = createInitialReviewState(item);
       migrated = true;
@@ -1607,7 +1668,7 @@ async function loadVocabulary() {
   return savedVocabulary;
 }
 
-async function saveVocabularyTerm(selectedText, context) {
+async function saveVocabularyTerm(selectedText, context, metadata = null) {
   const term = normalizeVocabularyTerm(selectedText);
   if (!term || term.length > 100) return;
   const source = {
@@ -1618,12 +1679,14 @@ async function saveVocabularyTerm(selectedText, context) {
     addedAt: new Date().toISOString(),
   };
   const existing = savedVocabulary.find((item) => item.normalized === term);
+  const learningMetadata = metadata || getLearningMetadata(selectedText);
   if (existing) {
     existing.lookupCount = (existing.lookupCount || 1) + 1;
     existing.sources = Array.isArray(existing.sources) ? existing.sources : [];
     if (!existing.sources.some((item) => item.videoId === currentVideoId && item.context === source.context)) existing.sources.unshift(source);
+    Object.entries(learningMetadata).forEach(([key, value]) => { if (value && !existing[key]) existing[key] = value; });
   } else {
-    savedVocabulary.unshift({ id: crypto.randomUUID(), term: selectedText.trim(), normalized: term, note: "", status: "learning", lookupCount: 1, createdAt: new Date().toISOString(), sources: [source], review: createInitialReviewState() });
+    savedVocabulary.unshift({ id: crypto.randomUUID(), term: selectedText.trim(), normalized: term, note: "", status: "learning", lookupCount: 1, createdAt: new Date().toISOString(), sources: [source], review: createInitialReviewState(), ...learningMetadata });
   }
   await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary });
   updateReviewCenter();
@@ -1732,7 +1795,9 @@ function renderReviewCard() {
   const item = reviewQueue[reviewQueueIndex];
   const context = item.sources?.[0]?.context || "暂无原视频例句";
   progress.textContent = `${reviewQueueIndex + 1} / ${reviewQueue.length}`;
-  card.innerHTML = `<div class="review-prompt"><strong>${escapeHtml(item.term)}</strong><span>${escapeHtml(context)}</span></div><button class="review-reveal" type="button">显示答案</button><div class="review-answer" hidden><p>${escapeHtml(item.note || "还没有释义笔记，请先回忆它在原句中的含义。")}</p><div class="review-ratings"><button data-rating="forgot">忘记了</button><button data-rating="fuzzy">有点模糊</button><button data-rating="remembered">想起来了</button><button data-rating="mastered">已经熟练</button></div></div>`;
+  const englishAnswer = item.definitionEn || item.note || "Try to recall its meaning from the original sentence.";
+  card.innerHTML = `<div class="review-prompt"><strong>${escapeHtml(item.term)}</strong>${vocabularyPronunciationHtml(item)}<span>${escapeHtml(context)}</span></div><button class="review-reveal" type="button">显示答案</button><div class="review-answer" hidden><p class="vocabulary-definition">${escapeHtml(englishAnswer)}</p>${item.example ? `<p class="vocabulary-example"><b>Example</b> ${escapeHtml(item.example)}</p>` : ""}${item.meaningZh ? `<details class="vocabulary-chinese"><summary>查看中文</summary><p>${escapeHtml(item.meaningZh)}</p></details>` : ""}<div class="review-ratings"><button data-rating="forgot">忘记了</button><button data-rating="fuzzy">有点模糊</button><button data-rating="remembered">想起来了</button><button data-rating="mastered">已经熟练</button></div></div>`;
+  card.querySelector(".vocabulary-speak")?.addEventListener("click", () => speakVocabularyTerm(item.term));
   card.querySelector(".review-reveal").addEventListener("click", (event) => {
     event.currentTarget.hidden = true;
     card.querySelector(".review-answer").hidden = false;
@@ -1793,13 +1858,14 @@ function renderVocabulary(query = "") {
   const list = document.getElementById("vocabularyList");
   if (!list) return;
   const needle = normalizeVocabularyTerm(query);
-  const items = savedVocabulary.filter((item) => !needle || item.normalized.includes(needle) || String(item.note || "").toLowerCase().includes(needle));
+  const items = savedVocabulary.filter((item) => !needle || item.normalized.includes(needle) || String(item.note || "").toLowerCase().includes(needle) || String(item.definitionEn || "").toLowerCase().includes(needle));
   list.innerHTML = items.length ? "" : `<div class="vocabulary-empty">No saved vocabulary yet.</div>`;
   items.forEach((item) => {
     const row = document.createElement("article");
     row.className = "vocabulary-item";
     const dueLabel = isVocabularyDue(item) ? "今日复习" : `下次 ${new Date(item.review.dueAt).toLocaleDateString()}`;
-    row.innerHTML = `<div class="vocabulary-item-head"><strong>${escapeHtml(item.term)}</strong><button class="note-delete" title="Delete word">✕</button></div><textarea placeholder="Meaning or personal note">${escapeHtml(item.note || "")}</textarea><div class="vocabulary-meta">Seen ${item.lookupCount || 1} time${item.lookupCount === 1 ? "" : "s"} · ${item.sources?.length || 0} source${item.sources?.length === 1 ? "" : "s"} · ${escapeHtml(dueLabel)}</div>${item.sources?.[0]?.context ? `<p class="vocabulary-context">${escapeHtml(item.sources[0].context)}</p>` : ""}`;
+    row.innerHTML = `<div class="vocabulary-item-head"><strong>${escapeHtml(item.term)}</strong><button class="note-delete" title="Delete word">✕</button></div>${vocabularyPronunciationHtml(item)}${item.definitionEn ? `<p class="vocabulary-definition">${escapeHtml(item.definitionEn)}</p>` : `<p class="vocabulary-definition vocabulary-definition-empty">English definition will appear after this item is included in smart analysis.</p>`}${item.example ? `<p class="vocabulary-example"><b>Example</b> ${escapeHtml(item.example)}</p>` : ""}${item.meaningZh ? `<details class="vocabulary-chinese"><summary>查看中文</summary><p>${escapeHtml(item.meaningZh)}</p></details>` : ""}<label class="vocabulary-note-label">Personal note<textarea placeholder="Add your own memory cue (optional)">${escapeHtml(item.note || "")}</textarea></label><div class="vocabulary-meta">Seen ${item.lookupCount || 1} time${item.lookupCount === 1 ? "" : "s"} · ${item.sources?.length || 0} source${item.sources?.length === 1 ? "" : "s"} · ${escapeHtml(dueLabel)}</div>${item.sources?.[0]?.context ? `<p class="vocabulary-context"><b>Original</b> ${escapeHtml(item.sources[0].context)}</p>` : ""}`;
+    row.querySelector(".vocabulary-speak")?.addEventListener("click", () => speakVocabularyTerm(item.term));
     row.querySelector("textarea").addEventListener("change", async (event) => { item.note = event.target.value.trim(); await chrome.storage.local.set({ [VOCABULARY_STORAGE_KEY]: savedVocabulary }); });
     row.querySelector(".note-delete").addEventListener("click", () => removeVocabularyTerm(item.id));
     list.appendChild(row);
@@ -1890,7 +1956,7 @@ async function runSmartReading({ automatic = false } = {}) {
   try {
     await loadLearningProfile();
     const profileVersion = learningProfileFingerprint(learningProfile);
-    const cacheKey = `learning_v4_${currentVideoId}_${intensity}_${profileVersion}`;
+    const cacheKey = `learning_v5_${currentVideoId}_${intensity}_${profileVersion}`;
     const cached = await chrome.storage.local.get(cacheKey);
     if (Array.isArray(cached[cacheKey]?.items)) {
       learningItems = cached[cacheKey].items;
@@ -1902,6 +1968,7 @@ async function runSmartReading({ automatic = false } = {}) {
       learningGuide = result.guide || {};
       await chrome.storage.local.set({ [cacheKey]: { items: learningItems, guide: learningGuide, createdAt: new Date().toISOString() } });
     }
+    await syncLearningMetadataToVocabulary();
     applyLearningHighlights();
     await updateCache();
     button.textContent = `已高亮 ${learningItems.length} 项`;
@@ -1949,11 +2016,12 @@ function openLearningCard(item, anchor) {
   document.getElementById("learningCard")?.remove();
   const card = document.createElement("div");
   card.id = "learningCard"; card.className = "learning-card";
-  card.innerHTML = `<button class="learning-card-close">✕</button><strong>${escapeHtml(item.term)}</strong><span class="learning-level">${escapeHtml(item.level)}</span><p>${escapeHtml(item.meaningZh)}</p><p class="learning-reason">${escapeHtml(item.reasonZh)}</p>${item.example ? `<p><em>${escapeHtml(item.example)}</em></p>` : ""}<div><button data-action="save">加入生词本</button><button data-action="known">已掌握</button><button data-action="fuzzy">模糊</button></div>`;
+  card.innerHTML = `<button class="learning-card-close">✕</button><strong>${escapeHtml(item.term)}</strong><span class="learning-level">${escapeHtml(item.level)}</span>${vocabularyPronunciationHtml(item)}${item.definitionEn ? `<p class="vocabulary-definition">${escapeHtml(item.definitionEn)}</p>` : ""}<p class="learning-reason">${escapeHtml(item.reasonZh)}</p>${item.example ? `<p class="vocabulary-example"><b>Example</b> ${escapeHtml(item.example)}</p>` : ""}${item.meaningZh ? `<details class="vocabulary-chinese"><summary>查看中文</summary><p>${escapeHtml(item.meaningZh)}</p></details>` : ""}<div><button data-action="save">加入生词本</button><button data-action="known">已掌握</button><button data-action="fuzzy">模糊</button></div>`;
   document.body.appendChild(card);
   const rect = anchor.getBoundingClientRect(); card.style.top = `${Math.min(window.innerHeight - card.offsetHeight - 12, rect.bottom + 8)}px`;
   card.querySelector(".learning-card-close").onclick = () => card.remove();
-  card.querySelector('[data-action="save"]').onclick = async () => { await saveVocabularyTerm(item.term, item.example || item.reasonZh); card.remove(); };
+  card.querySelector(".vocabulary-speak")?.addEventListener("click", () => speakVocabularyTerm(item.term));
+  card.querySelector('[data-action="save"]').onclick = async () => { await saveVocabularyTerm(item.term, item.sourceContext || item.example || item.reasonZh, getLearningMetadata(item.term)); card.remove(); };
   ["known", "fuzzy"].forEach((action) => card.querySelector(`[data-action="${action}"]`).onclick = async () => {
     await loadLearningProfile();
     const key = action === "known" ? "known" : "fuzzy";
@@ -1974,7 +2042,7 @@ function openLearningCard(item, anchor) {
 
 function exportVocabularyCsv() {
   const quote = (value) => `"${String(value || "").replace(/"/g, '""')}"`;
-  const rows = [["term", "note", "status", "lookup_count", "source_video", "source_context"], ...savedVocabulary.map((item) => [item.term, item.note, item.status, item.lookupCount, item.sources?.[0]?.videoTitle, item.sources?.[0]?.context])];
+  const rows = [["term", "type", "part_of_speech", "ipa_us", "ipa_uk", "english_definition", "chinese_meaning", "note", "status", "lookup_count", "source_video", "source_context"], ...savedVocabulary.map((item) => [item.term, item.type, item.partOfSpeech, item.ipaUs, item.ipaUk, item.definitionEn, item.meaningZh, item.note, item.status, item.lookupCount, item.sources?.[0]?.videoTitle, item.sources?.[0]?.context])];
   downloadFile(`\uFEFF${rows.map((row) => row.map(quote).join(",")).join("\n")}`, "youtube-digest-vocabulary.csv", "text/csv");
 }
 

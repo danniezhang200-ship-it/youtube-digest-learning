@@ -1250,6 +1250,17 @@ body {
 .vocabulary-item { padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
 .vocabulary-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .vocabulary-item-head strong { font: 600 17px var(--font-reading); color: var(--accent); }
+.vocabulary-pronunciation { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 9px;color:var(--text-muted);font:11.5px var(--font-body); }
+.vocabulary-pronunciation span:first-child { color:var(--accent);font-weight:600; }
+.vocabulary-speak { width:30px;height:30px;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--surface-raised);color:var(--text);cursor:pointer;line-height:1; }
+.vocabulary-speak:hover { border-color:var(--accent);transform:translateY(-1px); }
+.vocabulary-definition { margin:8px 0;color:var(--text);font:14px/1.55 var(--font-reading); }
+.vocabulary-definition-empty { color:var(--text-muted);font-size:12px;font-style:italic; }
+.vocabulary-example { margin:8px 0;color:var(--text-secondary);font:12.5px/1.55 var(--font-reading); }
+.vocabulary-chinese { margin:8px 0;color:var(--text-muted);font:12px/1.5 var(--font-body); }
+.vocabulary-chinese summary { cursor:pointer;color:var(--accent); }
+.vocabulary-chinese p { margin:6px 0 0; }
+.vocabulary-note-label { display:grid;gap:5px;margin-top:10px;color:var(--text-muted);font:10.5px var(--font-body); }
 .vocabulary-item textarea { min-height: 58px; resize: vertical; }
 .vocabulary-meta { margin-top: 8px; color: var(--text-muted); font: 11px var(--font-body); }
 .vocabulary-context { margin: 8px 0 0; color: var(--text-secondary); font: 12.5px/1.55 var(--font-reading); }
